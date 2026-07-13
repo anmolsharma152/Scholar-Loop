@@ -2,10 +2,11 @@
 difficulty: hard
 last_sent: null
 review_count: 0
+sequence: 16
 tags:
-  - graph
-  - union-find
-  - dsu
+- graph
+- union-find
+- dsu
 topic: dsa
 ---
 

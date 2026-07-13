@@ -2,9 +2,10 @@
 difficulty: hard
 last_sent: null
 review_count: 0
+sequence: 10
 tags:
-  - stack
-  - monotonic-stack
+- stack
+- monotonic-stack
 topic: dsa
 ---
 

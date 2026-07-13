@@ -2,9 +2,10 @@
 difficulty: medium
 last_sent: null
 review_count: 0
+sequence: 13
 tags:
-  - tree
-  - traversal
+- tree
+- traversal
 topic: dsa
 ---
 

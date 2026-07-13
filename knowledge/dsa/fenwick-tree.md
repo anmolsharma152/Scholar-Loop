@@ -2,10 +2,11 @@
 difficulty: hard
 last_sent: null
 review_count: 0
+sequence: 19
 tags:
-  - fenwick-tree
-  - bit
-  - range-query
+- fenwick-tree
+- bit
+- range-query
 topic: dsa
 ---
 

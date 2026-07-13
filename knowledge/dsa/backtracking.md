@@ -2,9 +2,10 @@
 difficulty: hard
 last_sent: null
 review_count: 0
+sequence: 9
 tags:
-  - backtracking
-  - recursion
+- backtracking
+- recursion
 topic: dsa
 ---
 

@@ -2,6 +2,7 @@
 difficulty: easy
 last_sent: null
 review_count: 0
+sequence: 2
 tags:
 - complexity
 - analysis

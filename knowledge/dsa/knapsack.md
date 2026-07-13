@@ -2,9 +2,10 @@
 difficulty: hard
 last_sent: null
 review_count: 0
+sequence: 17
 tags:
-  - dp
-  - knapsack
+- dp
+- knapsack
 topic: dsa
 ---
 

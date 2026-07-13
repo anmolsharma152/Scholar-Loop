@@ -2,9 +2,10 @@
 difficulty: medium
 last_sent: null
 review_count: 0
+sequence: 14
 tags:
-  - bst
-  - tree
+- bst
+- tree
 topic: dsa
 ---
 

@@ -2,9 +2,10 @@
 difficulty: medium
 last_sent: null
 review_count: 0
+sequence: 18
 tags:
-  - trie
-  - string
+- trie
+- string
 topic: dsa
 ---
 

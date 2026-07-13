@@ -2,6 +2,7 @@
 difficulty: medium
 last_sent: null
 review_count: 0
+sequence: 7
 tags:
 - pattern
 - two-pointers

@@ -2,9 +2,10 @@
 difficulty: medium
 last_sent: null
 review_count: 0
+sequence: 15
 tags:
-  - heap
-  - priority-queue
+- heap
+- priority-queue
 topic: dsa
 ---
 

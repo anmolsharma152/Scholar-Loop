@@ -2,6 +2,7 @@
 difficulty: easy
 last_sent: null
 review_count: 0
+sequence: 4
 tags:
 - arrays
 - matrix

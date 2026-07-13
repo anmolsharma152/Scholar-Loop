@@ -2,9 +2,10 @@
 difficulty: medium
 last_sent: null
 review_count: 0
+sequence: 16
 tags:
-  - graphs
-  - dfs
+- graphs
+- dfs
 topic: dsa
 ---
 

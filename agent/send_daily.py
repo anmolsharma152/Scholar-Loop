@@ -35,28 +35,43 @@ EMAIL_WRAPPER = """<!DOCTYPE html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{subject}</title>
 </head>
-<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:660px;margin:0 auto;padding:20px 16px;color:#1a1a1a;background:#f5f5f5;">
-<p style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#9ca3af;margin-bottom:20px;">Scholar-Loop &mdash; {date}</p>
-{notes}
-<p style="text-align:center;font-size:12px;color:#9ca3af;margin-top:28px;">Daily learning, built on spaced repetition.</p>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:40px 20px;background-color:#f3f4f6;">
+<div style="max-width:850px;margin:0 auto;">
+  <!-- Header -->
+  <div style="background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); border-radius: 16px 16px 0 0; padding: 40px; text-align: center;">
+    <h1 style="color: #ffffff; margin: 0; font-size: 32px; font-weight: 800; letter-spacing: -0.025em;">Scholar-Loop</h1>
+    <p style="color: #c4b5fd; margin: 8px 0 0 0; font-size: 16px; font-weight: 500;">{date}</p>
+  </div>
+  
+  <!-- Body -->
+  <div style="background-color: #ffffff; padding: 40px; border-radius: 0 0 16px 16px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);">
+    {notes}
+  </div>
+
+  <!-- Footer -->
+  <div style="text-align:center; padding-top:30px;">
+    <p style="font-size:14px; color:#6b7280; font-weight:500;">Daily learning, built on spaced repetition.</p>
+  </div>
+</div>
 </body>
 </html>"""
 
 # Inner section — one per note
 NOTE_SECTION = """
-<div style="background:#fff;border-radius:12px;padding:28px 28px 20px;box-shadow:0 1px 4px rgba(0,0,0,.07);margin-bottom:20px;">
-  <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
-    <span style="font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#6b7280;">{topic}</span>
-    <span style="font-size:11px;color:#d1d5db;">·</span>
-    <span style="font-size:11px;color:#6b7280;">{difficulty}</span>
+<div style="margin-bottom: 40px; padding-bottom: 40px; border-bottom: 1px solid #e5e7eb;">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+    <span style="font-size:12px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:#4f46e5;background:#e0e7ff;padding:4px 10px;border-radius:6px;">{topic}</span>
+    <span style="font-size:12px;font-weight:600;text-transform:uppercase;color:#6b7280;background:#f3f4f6;padding:4px 10px;border-radius:6px;">{difficulty}</span>
     {ai_badge}
   </div>
-  <h2 style="margin:0 0 16px 0;font-size:20px;font-weight:700;color:#111827;">{title}</h2>
-  {body}
+  <h2 style="margin:0 0 20px 0;font-size:28px;font-weight:800;color:#111827;line-height:1.2;">{title}</h2>
+  <div style="color:#374151;font-size:16px;line-height:1.7;">
+    {body}
+  </div>
 </div>
 """
 
-AI_BADGE = '<span style="font-size:10px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:#7c3aed;background:#f3f0ff;padding:2px 6px;border-radius:4px;">AI enhanced</span>'
+AI_BADGE = '<span style="font-size:12px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:#ffffff;background:linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%);padding:4px 10px;border-radius:6px;box-shadow:0 2px 4px rgba(236,72,153,0.3);">AI ENHANCED</span>'
 
 GROQ_ENHANCE_SYSTEM = """You are an expert tutor creating a daily spaced-repetition email. 
 Your goal is to synthesize the provided study note into a highly engaging, fast 2-minute read.
@@ -111,6 +126,38 @@ def load_notes(notes: list[Path]) -> list[tuple[Path, frontmatter.Post]]:
         post = frontmatter.load(str(path))
         loaded.append((path, post))
     return loaded
+
+
+def apply_sequence_filters(pool: list[tuple[Path, frontmatter.Post]]) -> list[tuple[Path, frontmatter.Post]]:
+    """
+    For topics with a `sequence` field, ensure we only introduce the lowest sequence number
+    that hasn't been read yet. Exclude all higher sequence numbers for unread notes.
+    """
+    topic_min_seqs = {}
+    
+    # 1. Find the lowest unread sequence number for each topic
+    for path, post in pool:
+        if score_note(post) == 1000.0:
+            seq = post.metadata.get("sequence")
+            if isinstance(seq, int):
+                topic = post.metadata.get("topic", "unknown")
+                if topic not in topic_min_seqs or seq < topic_min_seqs[topic]:
+                    topic_min_seqs[topic] = seq
+                    
+    # 2. Filter the pool
+    filtered = []
+    for path, post in pool:
+        seq = post.metadata.get("sequence")
+        topic = post.metadata.get("topic", "unknown")
+        
+        # If it's an unread note with a sequence, check if it's the lowest available
+        if score_note(post) == 1000.0 and isinstance(seq, int):
+            if seq > topic_min_seqs.get(topic, -1):
+                continue  # Skip this note, it's too advanced for now
+                
+        filtered.append((path, post))
+        
+    return filtered
 
 
 def pick_one(pool: list[tuple[Path, frontmatter.Post]]) -> tuple[Path, frontmatter.Post] | None:
@@ -256,7 +303,9 @@ def main():
         if not topic_pool:
             print(f"no notes for topic: {args.topic}", file=sys.stderr)
             sys.exit(1)
-        picks = [(pick_one(topic_pool), False)]
+        topic_pool = apply_sequence_filters(topic_pool)
+        picked = pick_one(topic_pool)
+        picks = [picked] if picked else []
     else:
         # Pick 2 notes from different topics
         picks = []
@@ -264,6 +313,7 @@ def main():
 
         for _ in range(2):
             pool = [(p, post) for p, post in loaded if post.metadata.get("topic") not in chosen_topics]
+            pool = apply_sequence_filters(pool)
             picked = pick_one(pool)
             if picked:
                 chosen_topics.add(picked[1].metadata.get("topic"))

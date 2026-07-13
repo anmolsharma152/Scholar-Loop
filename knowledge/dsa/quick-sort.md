@@ -2,6 +2,7 @@
 difficulty: medium
 last_sent: null
 review_count: 0
+sequence: 3
 tags:
 - sorting
 - divide-and-conquer

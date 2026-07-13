@@ -1,10 +1,11 @@
 ---
 difficulty: medium
-last_sent:
+last_sent: null
 review_count: 0
+sequence: 1
 tags:
-  - math
-  - linear-algebra
+- math
+- linear-algebra
 topic: dsa
 ---
 

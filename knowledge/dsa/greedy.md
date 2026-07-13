@@ -2,8 +2,9 @@
 difficulty: medium
 last_sent: null
 review_count: 0
+sequence: 12
 tags:
-  - greedy
+- greedy
 topic: dsa
 ---
 

@@ -2,8 +2,9 @@
 difficulty: easy
 last_sent: null
 review_count: 0
+sequence: 16
 tags:
-  - graphs
+- graphs
 topic: dsa
 ---
 
