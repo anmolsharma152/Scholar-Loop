@@ -29,18 +29,33 @@ RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
 RECIPIENT = os.environ.get("RECIPIENT")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
-EMAIL_TEMPLATE = """<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"></head>
-<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:640px;margin:0 auto;padding:20px;color:#1a1a1a;background:#fafafa;">
-<div style="background:#fff;border-radius:8px;padding:24px;box-shadow:0 1px 3px rgba(0,0,0,.1);">
-{body}
-</div>
-<p style="text-align:center;font-size:12px;color:#999;margin-top:20px;">
-Scholar-Loop &mdash; daily learning, built on spaced repetition.
-</p>
+# Outer wrapper — one per email
+EMAIL_WRAPPER = """<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{subject}</title>
+</head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:660px;margin:0 auto;padding:20px 16px;color:#1a1a1a;background:#f5f5f5;">
+<p style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:#9ca3af;margin-bottom:20px;">Scholar-Loop &mdash; {date}</p>
+{notes}
+<p style="text-align:center;font-size:12px;color:#9ca3af;margin-top:28px;">Daily learning, built on spaced repetition.</p>
 </body>
 </html>"""
+
+# Inner section — one per note
+NOTE_SECTION = """
+<div style="background:#fff;border-radius:12px;padding:28px 28px 20px;box-shadow:0 1px 4px rgba(0,0,0,.07);margin-bottom:20px;">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+    <span style="font-size:11px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#6b7280;">{topic}</span>
+    <span style="font-size:11px;color:#d1d5db;">·</span>
+    <span style="font-size:11px;color:#6b7280;">{difficulty}</span>
+    {ai_badge}
+  </div>
+  {body}
+</div>
+"""
+
+AI_BADGE = '<span style="font-size:10px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:#7c3aed;background:#f3f0ff;padding:2px 6px;border-radius:4px;">AI enhanced</span>'
 
 GROQ_ENHANCE_SYSTEM = """You are a learning assistant. Given a study note, enhance it by prepending:
 
@@ -131,22 +146,22 @@ def extract_title(content: str, path: Path) -> str:
     return path.stem.replace("-", " ").title()
 
 
-def render(post: frontmatter.Post, path: Path, enhanced: bool) -> str:
-    content = post.content
+def render_note_section(post: frontmatter.Post, path: Path, content: str, enhanced: bool) -> str:
+    """Render a single note as an HTML section (not a full document)."""
     meta = post.metadata
-    title = extract_title(content, path)
     topic = meta.get("topic", "unknown")
     difficulty = meta.get("difficulty", "unknown")
-
-    body = ""
-    if enhanced:
-        body += '<p style="font-size:13px;color:#6b7280;margin-bottom:16px;"><strong>[AI-enhanced]</strong></p>\n'
-    body += f'<p style="font-size:13px;color:#6b7280;margin-bottom:16px;">{topic} &middot; {difficulty}</p>\n'
-    body += markdown.markdown(
+    ai_badge = AI_BADGE if enhanced else ""
+    body_html = markdown.markdown(
         content,
         extensions=["fenced_code", "tables", "nl2br", "sane_lists", "md_in_html"],
     )
-    return EMAIL_TEMPLATE.format(body=body)
+    return NOTE_SECTION.format(
+        topic=topic,
+        difficulty=difficulty,
+        ai_badge=ai_badge,
+        body=body_html,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -242,12 +257,12 @@ def main():
             sys.exit(1)
 
     # Process each pick
-    html_parts = []
+    note_sections = []
     pick_labels = []
 
     for path, post in picks:
         content = post.content
-        title = extract_title(post.content, path)
+        title = extract_title(content, path)
         topic = post.metadata.get("topic", "unknown")
 
         if args.dry_run:
@@ -256,13 +271,12 @@ def main():
         else:
             enhanced_content = enhance_with_llm(content, title, topic)
             if enhanced_content:
-                content = enhanced_content
+                content = enhanced_content   # use enhanced text in render
                 enhanced = True
                 print(f"  enhanced: {path.name}")
             else:
                 enhanced = False
 
-        html = render(post, path, enhanced=enhanced)
         pick_labels.append(title)
 
         if args.dry_run:
@@ -270,18 +284,24 @@ def main():
             continue
 
         update_meta(path, post)
-        html_parts.append(html)
+        section = render_note_section(post, path, content=content, enhanced=enhanced)
+        note_sections.append(section)
 
     if args.dry_run:
         print("\n[dry run complete — no email sent]")
         return
 
-    if not html_parts:
+    if not note_sections:
         print("nothing to send", file=sys.stderr)
         sys.exit(0)
 
     subject = f"Scholar-Loop: {', '.join(pick_labels[:2])}"
-    combined_html = "<hr>\n".join(html_parts)
+    date_str = datetime.now(timezone.utc).strftime("%A, %d %b %Y")
+    combined_html = EMAIL_WRAPPER.format(
+        subject=subject,
+        date=date_str,
+        notes="\n".join(note_sections),
+    )
 
     send_via_resend(subject, combined_html)
     print("done")
