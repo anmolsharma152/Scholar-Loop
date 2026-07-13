@@ -19,7 +19,7 @@ import sys
 import time
 from pathlib import Path
 
-import google.generativeai as genai
+from google import genai
 
 logging.basicConfig(
     level=logging.INFO,
@@ -85,16 +85,13 @@ def _infer_tag(filename: str) -> str:
 
 
 def extract_with_gemini(pdf_path: Path, api_key: str) -> str | None:
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(
-        model_name="models/gemini-2.0-flash",
-        system_instruction=SYSTEM_PROMPT,
-    )
+    client = genai.Client(api_key=api_key)
 
-    pdf_file = genai.upload_file(pdf_path)
-    response = model.generate_content(
-        [pdf_file, "Summarize this paper into a structured markdown note."],
-        request_options={"timeout": 120},
+    pdf_file = client.files.upload(file=pdf_path)
+    response = client.models.generate_content(
+        model="models/gemini-2.0-flash",
+        contents=[pdf_file, "Summarize this paper into a structured markdown note."],
+        config={"system_instruction": SYSTEM_PROMPT},
     )
     return response.text.strip() if response.text else None
 
