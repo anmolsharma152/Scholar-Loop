@@ -1,9 +1,15 @@
 ---
-topic: papers
 difficulty: hard
-tags: [paper, self-supervised-learning, vision, representation-learning, joint-embedding, pretraining]
-last_sent:
-review_count: 0
+last_sent: 2026-07-13 23:04:46.220073+00:00
+review_count: 1
+tags:
+- paper
+- self-supervised-learning
+- vision
+- representation-learning
+- joint-embedding
+- pretraining
+topic: papers
 ---
 
 # Joint Embedding Predictive Architectures (I-JEPA): Towards Visual Understanding

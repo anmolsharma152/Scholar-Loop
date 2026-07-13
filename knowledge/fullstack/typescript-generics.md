@@ -1,10 +1,10 @@
 ---
 difficulty: hard
-last_sent:
-review_count: 0
+last_sent: 2026-07-13 23:04:49.523843+00:00
+review_count: 1
 tags:
-  - typescript
-  - generics
+- typescript
+- generics
 topic: fullstack
 ---
 
