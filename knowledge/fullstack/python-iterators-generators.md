@@ -1,11 +1,11 @@
 ---
 difficulty: medium
-last_sent:
-review_count: 0
+last_sent: 2026-07-13 23:34:33.562385+00:00
+review_count: 1
 tags:
-  - python
-  - iterators
-  - generators
+- python
+- iterators
+- generators
 topic: fullstack
 ---
 

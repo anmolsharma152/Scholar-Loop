@@ -1,7 +1,14 @@
 ---
-topic: papers
 difficulty: hard
-tags: [paper, pagedattention, memory-management, llm-serving, virtual-memory]
+last_sent: 2026-07-13 23:34:32.316879+00:00
+review_count: 1
+tags:
+- paper
+- pagedattention
+- memory-management
+- llm-serving
+- virtual-memory
+topic: papers
 ---
 
 # Efficient Memory Management for Large Language Model Serving with PagedAttention
