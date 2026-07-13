@@ -1,11 +1,11 @@
 ---
 difficulty: hard
-last_sent:
-review_count: 0
+last_sent: 2026-07-13 23:43:40.330462+00:00
+review_count: 1
 tags:
-  - cv
-  - yolo
-  - object-detection
+- cv
+- yolo
+- object-detection
 topic: ml-ai
 ---
 
