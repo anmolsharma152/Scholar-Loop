@@ -1,13 +1,18 @@
 ---
-topic: ml-ai
 difficulty: hard
-tags: [dl, gan, generative]
+last_sent: 2026-07-13 23:37:23.725348+00:00
+review_count: 1
 sources:
-  - GAN-LectureNotes.pdf
-  - CycleGAN.pdf
-  - GAN-LECTURE.pdf (Masai)
-  - Generative Adversarial Networks.pdf (Masai)
-  - GANs with contemporary advances and applications.pdf (Masai)
+- GAN-LectureNotes.pdf
+- CycleGAN.pdf
+- GAN-LECTURE.pdf (Masai)
+- Generative Adversarial Networks.pdf (Masai)
+- GANs with contemporary advances and applications.pdf (Masai)
+tags:
+- dl
+- gan
+- generative
+topic: ml-ai
 ---
 
 # Generative Adversarial Networks (GANs)

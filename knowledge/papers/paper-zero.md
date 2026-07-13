@@ -1,14 +1,14 @@
 ---
-topic: papers
 difficulty: hard
-last_sent:
-review_count: 0
+last_sent: 2026-07-13 23:37:22.284807+00:00
+review_count: 1
 tags:
-  - paper
-  - distributed-training
-  - memory-optimization
-  - large-scale
-  - parallelism
+- paper
+- distributed-training
+- memory-optimization
+- large-scale
+- parallelism
+topic: papers
 ---
 
 # ZeRO: Memory Optimizations Toward Training Trillion Parameter Models
