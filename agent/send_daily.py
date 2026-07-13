@@ -21,7 +21,7 @@ import markdown
 from openai import OpenAI
 
 KNOWLEDGE_DIR = Path(__file__).resolve().parent.parent / "knowledge"
-TOPIC_DIRS = ["dsa", "system-design", "ml-ai", "fullstack", "papers"]
+TOPIC_DIRS = ["dsa", "system-design", "ml-ai", "fullstack", "papers", "agentic-ai", "sql"]
 SKIP_FILES = {"README.md"}
 LLM_MODEL = os.environ.get("LLM_MODEL", "llama-3.3-70b-versatile")
 
@@ -122,10 +122,19 @@ def enhance_with_llm(content: str, title: str, topic: str) -> str | None:
 # Rendering
 # ---------------------------------------------------------------------------
 
+def extract_title(content: str, path: Path) -> str:
+    """Extract title from the first # H1 heading in content, falling back to filename slug."""
+    for line in content.splitlines():
+        line = line.strip()
+        if line.startswith("# "):
+            return line[2:].strip()
+    return path.stem.replace("-", " ").title()
+
+
 def render(post: frontmatter.Post, path: Path, enhanced: bool) -> str:
     content = post.content
     meta = post.metadata
-    title = path.stem.replace("-", " ").title()
+    title = extract_title(content, path)
     topic = meta.get("topic", "unknown")
     difficulty = meta.get("difficulty", "unknown")
 
@@ -238,7 +247,7 @@ def main():
 
     for path, post in picks:
         content = post.content
-        title = path.stem.replace("-", " ").title()
+        title = extract_title(post.content, path)
         topic = post.metadata.get("topic", "unknown")
 
         if args.dry_run:
