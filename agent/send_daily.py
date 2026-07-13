@@ -51,6 +51,7 @@ NOTE_SECTION = """
     <span style="font-size:11px;color:#6b7280;">{difficulty}</span>
     {ai_badge}
   </div>
+  <h2 style="margin:0 0 16px 0;font-size:20px;font-weight:700;color:#111827;">{title}</h2>
   {body}
 </div>
 """
@@ -157,7 +158,7 @@ def extract_title(content: str, path: Path) -> str:
     return path.stem.replace("-", " ").title()
 
 
-def render_note_section(post: frontmatter.Post, path: Path, content: str, enhanced: bool) -> str:
+def render_note_section(post: frontmatter.Post, path: Path, title: str, content: str, enhanced: bool) -> str:
     """Render a single note as an HTML section (not a full document)."""
     meta = post.metadata
     topic = meta.get("topic", "unknown")
@@ -168,6 +169,7 @@ def render_note_section(post: frontmatter.Post, path: Path, content: str, enhanc
         extensions=["fenced_code", "tables", "nl2br", "sane_lists", "md_in_html"],
     )
     return NOTE_SECTION.format(
+        title=title,
         topic=topic,
         difficulty=difficulty,
         ai_badge=ai_badge,
@@ -295,7 +297,7 @@ def main():
             continue
 
         update_meta(path, post)
-        section = render_note_section(post, path, content=content, enhanced=enhanced)
+        section = render_note_section(post, path, title=title, content=content, enhanced=enhanced)
         note_sections.append(section)
 
     if args.dry_run:
