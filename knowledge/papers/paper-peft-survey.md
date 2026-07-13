@@ -1,15 +1,15 @@
 ---
-topic: papers
 difficulty: hard
-last_sent:
-review_count: 0
+last_sent: 2026-07-13 23:24:09.627288+00:00
+review_count: 1
 tags:
-  - paper
-  - peft
-  - fine-tuning
-  - lora
-  - adapters
-  - survey
+- paper
+- peft
+- fine-tuning
+- lora
+- adapters
+- survey
+topic: papers
 ---
 
 # Parameter-Efficient Fine-Tuning for Large Models: A Comprehensive Survey

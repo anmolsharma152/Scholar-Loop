@@ -1,11 +1,16 @@
 ---
-topic: ml-ai
-title: "Clustering & PCA"
 difficulty: medium
-tags: [ml, clustering, pca]
+last_sent: 2026-07-13 23:24:11.416783+00:00
+review_count: 1
 sources:
-  - "ML_Lec12_Clustering.pdf"
-  - "ML_Lec13_PCA.pdf"
+- ML_Lec12_Clustering.pdf
+- ML_Lec13_PCA.pdf
+tags:
+- ml
+- clustering
+- pca
+title: Clustering & PCA
+topic: ml-ai
 ---
 
 # Clustering & Principal Component Analysis
