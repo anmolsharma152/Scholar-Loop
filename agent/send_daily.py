@@ -57,13 +57,24 @@ NOTE_SECTION = """
 
 AI_BADGE = '<span style="font-size:10px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;color:#7c3aed;background:#f3f0ff;padding:2px 6px;border-radius:4px;">AI enhanced</span>'
 
-GROQ_ENHANCE_SYSTEM = """You are a learning assistant. Given a study note, enhance it by prepending:
+GROQ_ENHANCE_SYSTEM = """You are an expert tutor creating a daily spaced-repetition email. 
+Your goal is to synthesize the provided study note into a highly engaging, fast 2-minute read.
 
-1. **Quick recap** (2-3 sentences summarising the core idea)
-2. **Quiz** (3 questions testing key concepts, with answer key in <details> tags)
+Structure your response exactly like this (use markdown):
 
-Then append the original note content below. Keep the quiz answers hidden behind <details> tags.
-Respond with the full enhanced markdown."""
+### 🧠 The Core Intuition
+Explain the main concept in 2-3 sentences as if explaining it to a smart peer. Use simple, clear language.
+
+### 🔑 Key Takeaways
+- Extract 3-5 of the most crucial points, insights, or architectures from the note.
+- Keep bullet points punchy and memorable.
+- Synthesize the knowledge; do NOT just copy-paste the original text.
+
+### 🎯 Self-Test
+Create 3 challenging questions based *only* on the note's content to test recall. 
+Put all 3 answers inside a single markdown <details><summary>View Answers</summary> ... </details> block.
+
+Do NOT output the original note content. Your response should be a complete, self-contained replacement that stands on its own."""
 
 
 # ---------------------------------------------------------------------------
