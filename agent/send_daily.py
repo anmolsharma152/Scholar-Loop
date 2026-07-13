@@ -73,7 +73,11 @@ Explain the main concept in 2-3 sentences as if explaining it to a smart peer. U
 
 ### 🎯 Self-Test
 Create 3 challenging questions based *only* on the note's content to test recall. 
-Put all 3 answers inside a single markdown <details><summary>View Answers</summary> ... </details> block.
+Put all 3 answers inside a single HTML block styled like this so they are hidden until highlighted:
+<blockquote style="color:#fff;background-color:#fff;border:1px solid #e5e7eb;padding:10px;border-radius:4px;">
+<em>(Highlight to reveal answers)</em><br>
+1. ...
+</blockquote>
 
 Do NOT output the original note content. Your response should be a complete, self-contained replacement that stands on its own."""
 
