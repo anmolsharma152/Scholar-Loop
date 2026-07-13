@@ -1,15 +1,15 @@
 ---
-topic: papers
 difficulty: hard
-last_sent:
-review_count: 0
+last_sent: 2026-07-13 23:30:14.588682+00:00
+review_count: 1
 tags:
-  - paper
-  - claude
-  - constitutional-ai
-  - safety
-  - multimodal
-  - alignment
+- paper
+- claude
+- constitutional-ai
+- safety
+- multimodal
+- alignment
+topic: papers
 ---
 
 # The Claude 3 Model Family: Opus, Sonnet, Haiku

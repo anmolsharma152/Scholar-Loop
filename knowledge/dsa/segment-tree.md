@@ -1,10 +1,10 @@
 ---
 difficulty: hard
-last_sent: null
-review_count: 0
+last_sent: 2026-07-13 23:30:15.904153+00:00
+review_count: 1
 tags:
-  - segment-tree
-  - range-query
+- segment-tree
+- range-query
 topic: dsa
 ---
 
