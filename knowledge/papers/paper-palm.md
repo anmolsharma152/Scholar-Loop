@@ -1,13 +1,13 @@
 ---
-topic: papers
 difficulty: hard
-last_sent:
-review_count: 0
+last_sent: 2026-07-14 11:52:30.720654+00:00
+review_count: 1
 tags:
-  - paper
-  - language-models
-  - scaling
-  - pathways
+- paper
+- language-models
+- scaling
+- pathways
+topic: papers
 ---
 
 # PaLM: Scaling Language Modeling with Pathways
