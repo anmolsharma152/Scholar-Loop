@@ -1,7 +1,14 @@
 ---
-topic: papers
 difficulty: hard
-tags: [paper, llama3, scaling, open-source, multilingual]
+last_sent: 2026-07-14 04:31:57.267447+00:00
+review_count: 1
+tags:
+- paper
+- llama3
+- scaling
+- open-source
+- multilingual
+topic: papers
 ---
 
 # The Llama 3 Herd of Models

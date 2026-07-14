@@ -1,7 +1,7 @@
 ---
 difficulty: medium
-last_sent: null
-review_count: 0
+last_sent: 2026-07-14 04:31:55.754501+00:00
+review_count: 1
 sequence: 1
 tags:
 - math
