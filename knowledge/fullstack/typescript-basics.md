@@ -1,9 +1,9 @@
 ---
 difficulty: easy
-last_sent:
-review_count: 0
+last_sent: 2026-07-15 04:31:28.240024+00:00
+review_count: 1
 tags:
-  - typescript
+- typescript
 topic: fullstack
 ---
 

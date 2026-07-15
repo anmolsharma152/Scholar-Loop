@@ -1,12 +1,17 @@
 ---
-topic: ml-ai
 difficulty: medium
-tags: [dl, cnn, architectures]
+last_sent: 2026-07-15 04:31:26.733693+00:00
+review_count: 1
 sources:
-  - DeepLearning102.pdf
-  - DeepLearning103.pdf
-  - DeepLearning104.pdf
-  - Computer Vision: Tasks, Vision Transformer (ViT)...pdf (Masai)
+- DeepLearning102.pdf
+- DeepLearning103.pdf
+- DeepLearning104.pdf
+- Computer Vision: Tasks, Vision Transformer (ViT)...pdf (Masai)
+tags:
+- dl
+- cnn
+- architectures
+topic: ml-ai
 ---
 
 # Deep CNN Architectures Beyond Basics
