@@ -1,48 +1,58 @@
 # Scholar-Loop
 
-> A personal spaced-repetition agent that emails you 2 study notes every morning — picked by score, enhanced by an LLM, and delivered before you open Slack.
+> A personal spaced-repetition agent that emails you learn + quiz every day — pick notes by FSRS, enhanced by Groq, delivered precisely via Resend scheduled delivery.
 
-Built on weighted-random scoring, Groq-powered recaps + quizzes, and GitHub Actions for zero-maintenance delivery.
+Built on FSRS spacing, Groq-generated quizzes, proportional topic allocation, and GitHub Actions for zero-maintenance delivery.
 
 ---
 
 ## How it works
 
 ```
-┌─────────────────────────────────────────┐
-│  knowledge/          193 notes across   │
-│  ├── dsa/            7 topics, YAML     │
-│  ├── system-design/  frontmatter with   │
-│  ├── ml-ai/          topic · difficulty │
-│  ├── fullstack/      tags · last_sent   │
-│  ├── papers/         review_count       │
-│  ├── agentic-ai/                        │
-│  └── sql/                               │
-└──────────────────┬──────────────────────┘
+┌──────────────────────────────────────────────┐
+│  knowledge/          223 notes across        │
+│  ├── dsa/             7 topics, YAML        │
+│  ├── system-design/   frontmatter with      │
+│  ├── ml-ai/           topic · difficulty    │
+│  ├── fullstack/       tags · last_sent      │
+│  ├── papers/          review_count          │
+│  ├── agentic-ai/                            │
+│  └── sql/                                   │
+└──────────────────┬───────────────────────────┘
                    │
-┌──────────────────▼──────────────────────┐
-│  agent/send_daily.py                    │
-│                                         │
-│  1. Score every note                    │
-│     unsent         → 1000               │
-│     sent before    → days×10 − reviews×5│
-│                                         │
-│  2. Pick 2 from different topics        │
-│     (weighted random)                   │
-│                                         │
-│  3. Enhance with Groq (optional)        │
-│     Llama 3.3 70B → recap + quiz        │
-│                                         │
-│  4. Send via Resend                     │
-│                                         │
-│  5. Commit updated metadata [skip ci]   │
-└──────────────────┬──────────────────────┘
+┌──────────────────▼───────────────────────────┐
+│  data/user.db    SQLite with FSRS state      │
+│  notes table:    path · stability ·          │
+│                  difficulty_fsrs · due ·     │
+│                  review_count · last_sent    │
+│  reviews table:  note_id · sent_at · grade   │
+└──────────────────┬───────────────────────────┘
                    │
-┌──────────────────▼──────────────────────┐
-│  .github/workflows/daily-email.yml      │
-│  Cron: 01:30 UTC  (07:00 IST)           │
-│  Trigger: also supports workflow_dispatch│
-└─────────────────────────────────────────┘
+┌──────────────────▼───────────────────────────┐
+│  agent/send_daily.py                         │
+│                                              │
+│  🧠 LEARN (morning)                          │
+│  1. Proportional topic selection             │
+│     DSA 35% · System Design 20% · ...        │
+│  2. Pick due notes (lowest retrievability)   │
+│  3. Render raw .md content as HTML            │
+│  4. Send immediately via Resend              │
+│                                              │
+│  📝 QUIZ (evening)                           │
+│  1. Pick previously-sent notes               │
+│  2. Groq generates 3 Q&A per note            │
+│  3. Answers hidden in <details> spoiler      │
+│  4. Send scheduled via Resend (4PM IST)      │
+│                                              │
+│  Both outcomes committed to user.db          │
+└──────────────────┬───────────────────────────┘
+                   │
+┌──────────────────▼───────────────────────────┐
+│  .github/workflows/daily-email.yml           │
+│  Cron: 03:13 UTC (08:43 IST) — off-peak      │
+│  Single run → learn (immediate) + quiz (4PM) │
+│  Trigger: also supports workflow_dispatch    │
+└──────────────────────────────────────────────┘
 ```
 
 ---
@@ -52,14 +62,12 @@ Built on weighted-random scoring, Groq-powered recaps + quizzes, and GitHub Acti
 | Topic | Notes | Content |
 |-------|-------|---------|
 | `dsa/` | 41 | Data structures, algorithms, complexity |
-| `ml-ai/` | 53 | ML fundamentals, deep learning, RL, CV, NLP |
-| `papers/` | 64 | AI research paper summaries (Transformer → DeepSeek-R1) |
+| `papers/` | 70 | AI research paper summaries (Transformer → DeepSeek-R1) |
+| `ml-ai/` | 60 | ML fundamentals, deep learning, RL, CV, NLP, vision transformers |
+| `fullstack/` | 22 | Python, FastAPI, TypeScript, React |
 | `system-design/` | 13 | Distributed systems, DDIA, ML system design |
-| `fullstack/` | 13 | Python, FastAPI, TypeScript, React |
-| `agentic-ai/` | 5 | RAG, multi-agent systems, LLM serving, prompt engineering |
-| `sql/` | 4 | SQL fundamentals through window functions |
-
-Papers are kept separate from `ml-ai/` so they can be scored and scheduled independently.
+| `sql/` | 9 | SQL fundamentals through window functions |
+| `agentic-ai/` | 8 | RAG, multi-agent systems, prompt engineering |
 
 ---
 
@@ -69,7 +77,7 @@ Papers are kept separate from `ml-ai/` so they can be scored and scheduled indep
 
 - Python 3.12+
 - [Resend](https://resend.com) API key — email delivery
-- [Groq](https://console.groq.com) API key — LLM recap + quiz (optional but recommended)
+- [Groq](https://console.groq.com) API key — quiz generation (optional but recommended)
 
 ### Local setup
 
@@ -87,14 +95,21 @@ source .env
 ```bash
 source .env
 python agent/send_daily.py --dry-run
-# prints selected notes, paths, and scores
+# prints selected notes, topics, and quiz candidates
 ```
 
-### Force a specific topic
+### Run learn only
 
 ```bash
-python agent/send_daily.py --dry-run --topic papers
-python agent/send_daily.py --dry-run --topic dsa
+source .env
+python agent/send_daily.py --dry-run --mode learn
+```
+
+### Run quiz only
+
+```bash
+source .env
+python agent/send_daily.py --dry-run --mode quiz
 ```
 
 ### Send a real email
@@ -102,13 +117,14 @@ python agent/send_daily.py --dry-run --topic dsa
 ```bash
 source .env
 python agent/send_daily.py
+# sends Learn immediately + Quiz scheduled for 4PM IST
 ```
 
 ---
 
 ## Note format
 
-Every note needs YAML frontmatter. The agent reads `topic`, `difficulty`, `last_sent`, and `review_count` to score and pick notes.
+Every note needs YAML frontmatter. The agent reads `topic`, `difficulty`, `last_sent`, and `review_count` to schedule notes.
 
 ```yaml
 ---
@@ -124,32 +140,32 @@ review_count: 0           # incremented automatically after each send
 Content here — markdown with code blocks, tables, and LaTeX all supported.
 ```
 
-The email title is extracted from the first `# H1` heading in the note body — not the filename.
-
 ---
 
-## Scoring
+## Selection & scheduling
 
-```python
-if never_sent:
-    score = 1000              # unsent notes have highest priority
-else:
-    score = days_since_last_sent * 10 - review_count * 5
-    score = max(score, 1)     # floor at 1 so nothing is permanently excluded
-```
+### Topic weights
 
-Two notes from **different topics** are picked per day via weighted-random selection. Notes you've seen recently and frequently are naturally deprioritised.
+| Topic | Weight | Effective per email |
+|-------|--------|-------------------|
+| DSA | 35% | ~2-3 notes |
+| System Design | 20% | ~1 note |
+| SQL | 10% | ~1 note (shared slot) |
+| Fullstack | 10% | |
+| ML-AI | 10% | |
+| Papers | 8% | |
+| Agentic AI | 7% | |
 
----
+Notes are picked by lowest FSRS retrievability within each topic's allocation.
 
-## LLM enhancement
+### Learn vs Quiz
 
-When `GROQ_API_KEY` is set, Groq (Llama 3.3 70B Versatile) wraps each note with:
-
-1. **Quick recap** — 2–3 sentence summary of the core idea
-2. **Quiz** — 3 questions with answers hidden in `<details>` tags
-
-Falls back gracefully to raw note content if the key is missing or the API errors.
+| | Learn (morning) | Quiz (evening) |
+|---|---|---|
+| **Content** | Full note rendered as HTML | 3 Q&A per note, hidden behind spoiler |
+| **Selection** | Due notes, proportional by topic | Previously-sent notes |
+| **Delivery** | Immediate | Scheduled for 4PM IST via Resend |
+| **Groq** | Not used (raw note content) | Generates questions from note text |
 
 ---
 
@@ -157,7 +173,7 @@ Falls back gracefully to raw note content if the key is missing or the API error
 
 ### GitHub Actions (automated)
 
-The cron fires at **01:30 UTC (07:00 IST)** every day. It also supports `workflow_dispatch` for manual triggers.
+The cron fires at **03:13 UTC (08:43 IST)** — an off-peak minute to avoid runner congestion. A single run sends both Learn (immediate) and Quiz (scheduled for 4PM IST).
 
 Add these secrets to **Settings → Secrets and variables → Actions**:
 
@@ -167,7 +183,7 @@ Add these secrets to **Settings → Secrets and variables → Actions**:
 | `RECIPIENT` | ✅ | Your email address |
 | `GROQ_API_KEY` | Recommended | From [console.groq.com](https://console.groq.com) |
 
-After each send, the workflow commits updated `last_sent` / `review_count` metadata back to the repo with `[skip ci]` to prevent loop triggers.
+After each send, the workflow commits updated `data/user.db` with `[skip ci]`.
 
 ### Manual trigger
 
@@ -181,7 +197,7 @@ Go to **Actions → daily-email → Run workflow** to send immediately without w
 |----------|----------|---------|---------|
 | `RESEND_API_KEY` | Yes | — | Email delivery |
 | `RECIPIENT` | Yes | — | Destination email address |
-| `GROQ_API_KEY` | No | — | Enables LLM recap + quiz |
+| `GROQ_API_KEY` | No | — | Enables quiz generation |
 | `LLM_MODEL` | No | `llama-3.3-70b-versatile` | Override Groq model |
 
 ---
@@ -190,12 +206,8 @@ Go to **Actions → daily-email → Run workflow** to send immediately without w
 
 | Version | Status | Description |
 |---------|--------|-------------|
-| **MVP** | ✅ Done | Weighted-random picker, Groq enhancement, Resend delivery |
-| **V1.5** | Planned | Live watchers — `arxiv_watch.py`, `feed_watch.py` with human-review queue |
-| **V2** | Planned | LangGraph agent with Gemini 2.5 Flash orchestration + RAG over notes |
-| **V2.5** | Planned | SM-2 spaced-repetition replacing weighted-random scoring |
-
-### Model routing (V2+)
-
-- **Gemini 2.5 Flash** — orchestration, tool-calling, RAG
-- **Groq Llama 3.3 70B** — fast synthesis, recap + quiz generation
+| **MVP** | ✅ | Weighted-random picker, Groq enhancement, Resend delivery |
+| **V1** | ✅ | FSRS scheduling, proportional topic allocation, Learn/Quiz split |
+| **V1.5** | Planned | Grade feedback loop (capture quiz responses → update FSRS params) |
+| **V2** | Planned | Multi-user with Google OAuth, per-user FSRS state |
+| **V2.5** | Planned | Live watchers — `arxiv_watch.py`, `feed_watch.py` |
