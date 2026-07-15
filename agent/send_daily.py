@@ -52,6 +52,7 @@ TOPIC_WEIGHTS = {
 
 NOTES_PER_LEARN = 4
 NOTES_PER_QUIZ = 4
+MAX_NOTES_TOTAL = 5  # Cap total notes across all topics per email
 
 # ---------------------------------------------------------------------------
 # HTML templates
@@ -61,29 +62,29 @@ HEADER_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
-  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; margin:0; padding:40px 20px; background-color:#f3f4f6; }
-  .container { max-width:850px; margin:0 auto; }
-  .header { background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%); border-radius:16px 16px 0 0; padding:40px; text-align:center; }
-  .header h1 { color:#fff; margin:0; font-size:32px; font-weight:800; letter-spacing:-0.025em; }
-  .header p { color:#c4b5fd; margin:8px 0 0; font-size:16px; font-weight:500; }
-  .body { background:#fff; padding:40px; border-radius:0 0 16px 16px; box-shadow:0 10px 15px -3px rgba(0,0,0,0.1); }
-  .footer { text-align:center; padding-top:30px; }
-  .footer p { font-size:14px; color:#6b7280; font-weight:500; }
-  .note-section { margin-bottom:40px; padding-bottom:40px; border-bottom:1px solid #e5e7eb; }
-  .note-section:last-child { border-bottom:none; margin-bottom:0; padding-bottom:0; }
-  .meta-row { display:flex; align-items:center; gap:10px; margin-bottom:16px; }
-  .tag-topic { font-size:12px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; color:#4f46e5; background:#e0e7ff; padding:4px 10px; border-radius:6px; }
-  .tag-diff { font-size:12px; font-weight:600; text-transform:uppercase; color:#6b7280; background:#f3f4f6; padding:4px 10px; border-radius:6px; }
-  h2 { margin:0 0 20px 0; font-size:26px; font-weight:800; color:#111827; line-height:1.3; }
-  .content { color:#374151; font-size:16px; line-height:1.7; }
-  .content pre { background:#1f2937; color:#e5e7eb; padding:16px; border-radius:8px; overflow-x:auto; font-size:14px; }
-  .content code { background:#f3f4f6; padding:2px 6px; border-radius:4px; font-size:14px; }
-  .content table { border-collapse:collapse; width:100%; margin:16px 0; }
-  .content th, .content td { border:1px solid #e5e7eb; padding:8px 12px; text-align:left; font-size:14px; }
-  .content th { background:#f9fafb; font-weight:700; }
-  .quiz-q { font-weight:700; color:#111827; margin:16px 0 4px; }
-  .quiz-spoiler summary { cursor:pointer; color:#4f46e5; font-weight:600; font-size:14px; padding:4px 0; }
-  .quiz-spoiler { margin:0 0 20px; }
+  body {{ font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; margin:0; padding:40px 20px; background-color:#f3f4f6; }}
+  .container {{ max-width:850px; margin:0 auto; }}
+  .header {{ background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%); border-radius:16px 16px 0 0; padding:40px; text-align:center; }}
+  .header h1 {{ color:#fff; margin:0; font-size:32px; font-weight:800; letter-spacing:-0.025em; }}
+  .header p {{ color:#c4b5fd; margin:8px 0 0; font-size:16px; font-weight:500; }}
+  .body {{ background:#fff; padding:40px; border-radius:0 0 16px 16px; box-shadow:0 10px 15px -3px rgba(0,0,0,0.1); }}
+  .footer {{ text-align:center; padding-top:30px; }}
+  .footer p {{ font-size:14px; color:#6b7280; font-weight:500; }}
+  .note-section {{ margin-bottom:40px; padding-bottom:40px; border-bottom:1px solid #e5e7eb; }}
+  .note-section:last-child {{ border-bottom:none; margin-bottom:0; padding-bottom:0; }}
+  .meta-row {{ display:flex; align-items:center; gap:10px; margin-bottom:16px; }}
+  .tag-topic {{ font-size:12px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; color:#4f46e5; background:#e0e7ff; padding:4px 10px; border-radius:6px; }}
+  .tag-diff {{ font-size:12px; font-weight:600; text-transform:uppercase; color:#6b7280; background:#f3f4f6; padding:4px 10px; border-radius:6px; }}
+  h2 {{ margin:0 0 20px 0; font-size:26px; font-weight:800; color:#111827; line-height:1.3; }}
+  .content {{ color:#374151; font-size:16px; line-height:1.7; }}
+  .content pre {{ background:#f3f4f6; color:#1f2937; padding:16px; border-radius:8px; overflow-x:auto; font-size:14px; }}
+  .content code {{ background:#f3f4f6; padding:2px 6px; border-radius:4px; font-size:14px; color:#1f2937; }}
+  .content table {{ border-collapse:collapse; width:100%; margin:16px 0; }}
+  .content th, .content td {{ border:1px solid #e5e7eb; padding:8px 12px; text-align:left; font-size:14px; }}
+  .content th {{ background:#f9fafb; font-weight:700; }}
+  .quiz-q {{ font-weight:700; color:#111827; margin:16px 0 4px; }}
+  .quiz-spoiler summary {{ cursor:pointer; color:#4f46e5; font-weight:600; font-size:14px; padding:4px 0; }}
+  .quiz-spoiler {{ margin:0 0 20px; }}
 </style>
 </head>
 <body>
@@ -198,6 +199,20 @@ def extract_title(content: str) -> str:
     return ""
 
 
+def strip_h1(content: str) -> str:
+    """Remove the first # H1 heading — title is rendered separately."""
+    lines = content.splitlines()
+    # Find first non-empty line that starts with "# "
+    for i, line in enumerate(lines):
+        if line.strip().startswith("# "):
+            # Remove it and any following blank lines
+            j = i + 1
+            while j < len(lines) and lines[j].strip() == "":
+                j += 1
+            return "\n".join(lines[:i] + lines[j:])
+    return content
+
+
 def render_markdown(content: str) -> str:
     return markdown.markdown(
         content,
@@ -304,7 +319,10 @@ def run_learn(dry_run: bool) -> bool:
                         break
 
     for topic, slots in topic_slots.items():
-        rows = pick_due_notes(conn, topic, slots, exclude_ids=seen_ids)
+        if len(picked) >= MAX_NOTES_TOTAL:
+            break
+        allowed = min(slots, MAX_NOTES_TOTAL - len(picked))
+        rows = pick_due_notes(conn, topic, allowed, exclude_ids=seen_ids)
         for r in rows:
             seen_ids.add(r["id"])
             path = r["path"]
@@ -312,7 +330,8 @@ def run_learn(dry_run: bool) -> bool:
             if not raw:
                 continue
             title = extract_title(raw) or r["title"]
-            content_html = render_markdown(raw)
+            content_no_h1 = strip_h1(raw)
+            content_html = render_markdown(content_no_h1)
             section_html = format_note_section(r, content_html)
 
             picked.append({
