@@ -1,6 +1,6 @@
 # Scholar-Loop
 
-> A personal spaced-repetition agent that emails you learn + quiz every day — pick notes by FSRS, enhanced by Groq, delivered precisely via Resend scheduled delivery.
+> Personal spaced-repetition agent that emails you FSRS-scheduled Learn + Quiz every day across DSA, System Design, ML-AI, and more.
 
 Built on FSRS spacing, Groq-generated quizzes, proportional topic allocation, and GitHub Actions for zero-maintenance delivery.
 
