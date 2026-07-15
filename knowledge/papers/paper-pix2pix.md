@@ -1,7 +1,16 @@
 ---
-topic: papers
 difficulty: hard
-tags: [paper, pix2pix, conditional-gan, image-to-image-translation, patchgan, u-net, structured-prediction]
+last_sent: 2026-07-15 11:56:39.908466+00:00
+review_count: 1
+tags:
+- paper
+- pix2pix
+- conditional-gan
+- image-to-image-translation
+- patchgan
+- u-net
+- structured-prediction
+topic: papers
 ---
 
 # Image-to-Image Translation with Conditional Adversarial Networks
