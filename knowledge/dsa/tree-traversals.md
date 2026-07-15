@@ -11,7 +11,7 @@ topic: dsa
 
 # Tree traversals
 
-Visiting every node in a tree in a defined order. The three **depth-first** variants differ by when you visit the root relative to its children. **Level-order** (BFS) visits level by level.
+Visiting every node in a tree in a defined order. The three **depth-first** variants differ by when you visit the root relative to its children. **Level-order** (BFS) visits level by level. Each traversal has specific use cases — choosing the right one simplifies your code.
 
 ## Depth-first (recursive)
 
@@ -79,20 +79,30 @@ def level_order(root):
 
 ## When to use each
 
-| Traversal | Use case |
-|-----------|----------|
-| **Inorder** | Sorted output from BST |
-| **Preorder** | Clone / serialize a tree |
-| **Postorder** | Delete tree, bottom-up DP |
-| **Level-order** | Shortest path, print by level |
+| Traversal | Use case | Why |
+|-----------|----------|-----|
+| **Inorder** | Sorted output from BST | Left → Root → Right gives sorted order |
+| **Preorder** | Clone / serialize a tree | Root first, then children — natural for reconstruction |
+| **Postorder** | Delete tree, bottom-up DP | Children before parent — safe to delete |
+| **Level-order** | Shortest path, print by level | BFS gives level-by-level processing |
 
 ## Common bugs
 
 - Using a list as a queue (O(n) pop from front); use `collections.deque`
-- Missing the `None` check before recursing
-- Not resetting stack between traversals
+- Missing the `None` check before recursing — causes AttributeError
+- Not resetting stack between traversals — state leaks
+- Confusing inorder with preorder — BST inorder gives sorted; preorder doesn't
 
 ## Time/space
 
 - Time: **O(n)** — each node visited once
 - Space: **O(h)** for recursion stack / explicit stack, **O(n)** worst (skew); **O(w)** for BFS queue (w = max width)
+
+## Quick reference
+
+| Traversal | Mnemonic | Result for BST |
+|-----------|----------|----------------|
+| Inorder | Left → Root → Right | Sorted ascending |
+| Preorder | Root → Left → Right | Root first, useful for copy |
+| Postorder | Left → Right → Root | Root last, useful for delete |
+| Level-order | Level by level | BFS order |

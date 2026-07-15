@@ -11,14 +11,14 @@ topic: dsa
 
 # Depth-first search (DFS)
 
-Explores a graph by going as **deep as possible** before backtracking. Uses a **stack** (explicit or recursion). Tracks visited nodes to avoid cycles. Three **visit orders** mirror tree traversals.
+Explores a graph by going as **deep as possible** before backtracking. Uses a **stack** (explicit or recursion). Tracks visited nodes to avoid cycles. Three **visit orders** mirror tree traversals: pre-order (visit first), in-order (visit between children), post-order (visit after children).
 
 ## Recursive DFS
 
 ```python
 def dfs_recursive(graph, node, visited):
     visited.add(node)
-    print(node)  # pre-order
+    print(node)  # pre-order: process when first seen
     for nbr in graph[node]:
         if nbr not in visited:
             dfs_recursive(graph, nbr, visited)
@@ -63,21 +63,36 @@ def has_cycle(graph):
 
 | Problem | Approach |
 |---------|----------|
-| Path existence | DFS finds any path |
+| Path existence | DFS finds any path (don't need shortest) |
 | Connected components | Run DFS from each unvisited node |
-| Topological sort | Post-order DFS |
+| Topological sort | Post-order DFS, then reverse |
 | Cycle detection | Track recursion stack (directed) or parent (undirected) |
-| Maze solving | DFS with backtracking |
-| Find all paths | DFS explores every route |
+| Maze solving | DFS with backtracking explores all routes |
+| Find all paths | DFS explores every route to find all solutions |
+
+## DFS vs BFS
+
+DFS uses less memory (stack vs queue) and is natural for backtracking problems. BFS guarantees shortest path. Use DFS when you need to explore all possibilities (combinations, permutations, mazes). Use BFS when you need level-order or shortest distance.
 
 ## Common bugs
 
 - Stack overflow on deep recursion (use iterative or increase recursion limit)
-- Not marking visited before recursing (infinite loop)
-- Forgetting to handle disconnected components
-- Confusing pre-order vs post-order processing
+- Not marking visited before recursing (infinite loop on cycles) — mark when entering, not after
+- Forgetting to handle disconnected components — run DFS from each unvisited node
+- Confusing pre-order vs post-order processing — matters for topological sort (post-order gives reverse)
 
 ## Time/space
 
-- Time: **O(V + E)**
+- Time: **O(V + E)** — each vertex and edge visited once
 - Space: **O(V)** — recursion stack / explicit stack + visited set
+
+## Template
+
+```python
+def dfs(graph, node, visited):
+    visited.add(node)
+    # process node here
+    for neighbor in graph[node]:
+        if neighbor not in visited:
+            dfs(graph, neighbor, visited)
+```
