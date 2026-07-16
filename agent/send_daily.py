@@ -8,18 +8,17 @@ Usage:
   python agent/send_daily.py --dry-run --mode quiz       # preview quiz without sending
 """
 
-import json
+import math
 import os
-import random
 import sqlite3
 import sys
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
 import frontmatter
 import markdown
-from fsrs import Scheduler, Card, Rating
+from fsrs import Card, Rating, Scheduler, State
 from openai import OpenAI
 from premailer import transform
 
@@ -45,6 +44,10 @@ TOPIC_WEIGHTS = {
 NOTES_PER_LEARN = 4
 NOTES_PER_QUIZ = 4
 MAX_NOTES_TOTAL = 5
+
+# Daily email has no intra-day learning steps — each send is one full review.
+# Empty learning_steps so Rating.Good graduates straight to multi-day intervals.
+_SCHEDULER = Scheduler(learning_steps=(), relearning_steps=(), enable_fuzzing=False)
 
 HEADER_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -97,11 +100,77 @@ TOPIC_DIRS = [
 ]
 SKIP_FILES = {"README.md"}
 
+NOTE_SELECT_COLS = """id, path, title, topic, difficulty, tags, word_count,
+                   stability, difficulty_fsrs, due, review_count, last_sent,
+                   sequence, state, step"""
+
+
+def _parse_dt(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value)
+    except (ValueError, TypeError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def ensure_schema(conn: sqlite3.Connection) -> None:
+    """Create tables if needed and add FSRS state columns on older DBs."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS notes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            path TEXT UNIQUE NOT NULL,
+            title TEXT NOT NULL,
+            topic TEXT NOT NULL,
+            difficulty TEXT,
+            tags TEXT,
+            word_count INTEGER,
+            sequence INTEGER,
+            stability REAL DEFAULT 1.0,
+            difficulty_fsrs REAL DEFAULT 3.0,
+            due TEXT,
+            elapsed_days INTEGER DEFAULT 0,
+            review_count INTEGER DEFAULT 0,
+            last_sent TEXT,
+            state INTEGER DEFAULT 1,
+            step INTEGER,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS reviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            note_id INTEGER REFERENCES notes(id),
+            sent_at TEXT NOT NULL,
+            grade INTEGER NOT NULL,
+            response_time_ms INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_notes_topic ON notes(topic);
+        CREATE INDEX IF NOT EXISTS idx_notes_due ON notes(due);
+        CREATE INDEX IF NOT EXISTS idx_reviews_note ON reviews(note_id);
+    """)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(notes)")}
+    if "state" not in cols:
+        conn.execute("ALTER TABLE notes ADD COLUMN state INTEGER DEFAULT 1")
+    if "step" not in cols:
+        conn.execute("ALTER TABLE notes ADD COLUMN step INTEGER")
+    # Heal legacy rows that were "reviewed" without real FSRS graduation.
+    conn.execute("""
+        UPDATE notes
+        SET state = 2, step = NULL
+        WHERE last_sent IS NOT NULL
+          AND review_count > 0
+          AND (state IS NULL OR state = 1)
+    """)
+    conn.commit()
+
 
 def get_db() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
+    ensure_schema(conn)
     return conn
 
 
@@ -114,28 +183,90 @@ def count_due(conn, topic: str, now: datetime | None = None) -> int:
     ).fetchone()[0]
 
 
+def _apply_sequence_filter(
+    conn: sqlite3.Connection,
+    topic: str,
+    rows: list[sqlite3.Row],
+) -> list[sqlite3.Row]:
+    """Gate brand-new notes by curriculum sequence when the topic uses it.
+
+    Already-sent (review) notes pass through. Unsent notes are only eligible
+    at the minimum sequence among unsent notes for that topic. Notes without
+    a sequence tag are never blocked.
+    """
+    min_seq = conn.execute(
+        """SELECT MIN(sequence) FROM notes
+           WHERE topic=? AND last_sent IS NULL AND sequence IS NOT NULL""",
+        (topic,),
+    ).fetchone()[0]
+    if min_seq is None:
+        return rows
+
+    filtered: list[sqlite3.Row] = []
+    for r in rows:
+        if r["last_sent"] is not None:
+            filtered.append(r)
+        elif r["sequence"] is None or r["sequence"] == min_seq:
+            filtered.append(r)
+    return filtered
+
+
 def pick_due_notes(conn, topic: str, count: int, exclude_ids: set = None,
                    now: datetime | None = None) -> list[sqlite3.Row]:
     if now is None:
         now = datetime.now(timezone.utc)
+    if exclude_ids is None:
+        exclude_ids = set()
+
     exclude_clause = ""
-    params = [topic, now.isoformat()]
+    params: list = [topic, now.isoformat()]
     if exclude_ids:
         placeholders = ",".join("?" for _ in exclude_ids)
         exclude_clause = f" AND id NOT IN ({placeholders})"
         params.extend(exclude_ids)
 
+    # No LIMIT before sequence filter — gate may drop many unsent candidates.
     rows = conn.execute(
-        f"""SELECT id, path, title, topic, difficulty, tags, word_count,
-                   stability, difficulty_fsrs, due, review_count, last_sent
+        f"""SELECT {NOTE_SELECT_COLS}
             FROM notes
             WHERE topic=? AND (due IS NULL OR due <= ?)
             {exclude_clause}
-            ORDER BY due ASC NULLS FIRST, RANDOM()
-            LIMIT ?""",
-        (*params, count)
+            ORDER BY
+              due ASC NULLS FIRST,
+              sequence ASC NULLS LAST,
+              RANDOM()""",
+        params,
     ).fetchall()
-    return rows
+
+    rows = _apply_sequence_filter(conn, topic, rows)
+
+    # Curriculum topics: prefer introducing the current sequence step over
+    # replaying older out-of-order reviews, so the syllabus can advance.
+    min_seq = conn.execute(
+        """SELECT MIN(sequence) FROM notes
+           WHERE topic=? AND last_sent IS NULL AND sequence IS NOT NULL""",
+        (topic,),
+    ).fetchone()[0]
+    if min_seq is not None:
+        rows = sorted(
+            rows,
+            key=lambda r: (
+                0 if r["last_sent"] is None else 1,
+                r["due"] or "",
+                r["sequence"] if r["sequence"] is not None else 10**9,
+            ),
+        )
+    else:
+        # No curriculum: prefer due reviews before brand-new notes.
+        rows = sorted(
+            rows,
+            key=lambda r: (
+                0 if r["last_sent"] is not None else 1,
+                r["due"] or "",
+            ),
+        )
+
+    return list(rows[:count])
 
 
 def compute_retrievability(stability: float, difficulty: float,
@@ -145,55 +276,89 @@ def compute_retrievability(stability: float, difficulty: float,
         now = datetime.now(timezone.utc)
     if not last_sent or stability <= 0:
         return 0.0
-    try:
-        last = datetime.fromisoformat(last_sent)
-        if last.tzinfo is None:
-            last = last.replace(tzinfo=timezone.utc)
-    except (ValueError, TypeError):
+    last = _parse_dt(last_sent)
+    if last is None:
         return 0.0
     elapsed_days = (now - last).total_seconds() / 86400.0
     if elapsed_days < 0:
         elapsed_days = 0
-    # FSRS-5 retrievability: R = (1 + 19/81 * elapsed / stability * ...)^{-1}
-    # Simplified: R = 2^(-elapsed / stability)
-    # For S > 0, this is a standard exponential forgetting curve
-    import math
+    # Simplified exponential forgetting: R = 2^(-elapsed / stability)
     decay = math.pow(2.0, -elapsed_days / max(stability, 0.01))
     return max(decay, 0.0)
 
 
+def _card_from_row(row: sqlite3.Row) -> Card:
+    """Rebuild an fsrs Card from a notes row (fsrs 6.x fields)."""
+    review_count = row["review_count"] or 0
+    last = _parse_dt(row["last_sent"])
+
+    if not last or review_count <= 0:
+        return Card()
+
+    due = _parse_dt(row["due"]) or last
+    try:
+        state_raw = row["state"]
+    except (IndexError, KeyError):
+        state_raw = None
+    try:
+        step = row["step"]
+    except (IndexError, KeyError):
+        step = None
+
+    # Legacy rows without state: treat as Review so Good advances multi-day.
+    if state_raw is None:
+        state = State.Review
+    else:
+        state = State(int(state_raw))
+
+    stability = row["stability"]
+    difficulty = row["difficulty_fsrs"]
+    return Card(
+        state=state,
+        step=step,
+        stability=float(stability) if stability is not None else None,
+        difficulty=float(difficulty) if difficulty is not None else None,
+        due=due,
+        last_review=last,
+    )
+
+
 def mark_sent(conn, note_id: int, now: datetime | None = None):
+    """Record a passive Good review and schedule the next due date via FSRS."""
     if now is None:
         now = datetime.now(timezone.utc)
-    
+
     row = conn.execute(
-        "SELECT stability, difficulty_fsrs, review_count, last_sent FROM notes WHERE id=?", 
-        (note_id,)
+        f"SELECT {NOTE_SELECT_COLS} FROM notes WHERE id=?",
+        (note_id,),
     ).fetchone()
-    
-    if row:
-        card = Card()
-        card.stability = row["stability"]
-        card.difficulty = row["difficulty_fsrs"]
-        card.reps = row["review_count"]
-        if row["last_sent"]:
-            try:
-                dt = datetime.fromisoformat(row["last_sent"])
-                if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
-                card.last_review = dt
-            except:
-                pass
-        
-        scheduler = Scheduler()
-        card, _ = scheduler.review_card(card, Rating.Good, now)
-        
-        conn.execute(
-            """UPDATE notes SET last_sent=?, review_count=?, due=?, stability=?, difficulty_fsrs=?
-               WHERE id=?""",
-            (now.isoformat(), card.reps, card.due.isoformat(), card.stability, card.difficulty, note_id)
-        )
-        conn.commit()
+    if not row:
+        return
+
+    card = _card_from_row(row)
+    card, _ = _SCHEDULER.review_card(card, Rating.Good, now)
+    new_count = (row["review_count"] or 0) + 1
+
+    conn.execute(
+        """UPDATE notes SET last_sent=?, review_count=?, due=?,
+               stability=?, difficulty_fsrs=?, state=?, step=?
+           WHERE id=?""",
+        (
+            now.isoformat(),
+            new_count,
+            card.due.isoformat(),
+            card.stability,
+            card.difficulty,
+            int(card.state),
+            card.step,
+            note_id,
+        ),
+    )
+    conn.execute(
+        "INSERT INTO reviews (note_id, sent_at, grade) VALUES (?, ?, ?)",
+        (note_id, now.isoformat(), int(Rating.Good)),
+    )
+    conn.commit()
 
 
 def read_note_content(path: str) -> str:
@@ -324,6 +489,21 @@ def compute_topic_slots(weights: dict, total_slots: int,
 # Run modes
 # ---------------------------------------------------------------------------
 
+def _log_pick(mode: str, items: list[dict]) -> None:
+    print(f"[{mode}] selected {len(items)} note(s):")
+    for i, p in enumerate(items, 1):
+        seq = p.get("sequence")
+        seq_s = f" seq={seq}" if seq is not None else ""
+        due = p.get("due") or "null"
+        stab = p.get("stability")
+        stab_s = f"{stab:.2f}" if isinstance(stab, (int, float)) else str(stab)
+        print(
+            f"  {i}. [{p.get('topic')}] {p.get('title')}"
+            f"  path={p.get('path')}  due={due}  S={stab_s}"
+            f"  rc={p.get('review_count', 0)}{seq_s}"
+        )
+
+
 def run_learn(dry_run: bool, now: datetime | None = None,
               send_fn: Callable | None = None) -> bool:
     if now is None:
@@ -337,6 +517,8 @@ def run_learn(dry_run: bool, now: datetime | None = None,
         TOPIC_WEIGHTS, NOTES_PER_LEARN,
         lambda t: count_due(conn, t, now)
     )
+    if dry_run:
+        print(f"[learn] topic slots: {topic_slots}")
 
     for topic, slots in topic_slots.items():
         if len(picked) >= MAX_NOTES_TOTAL:
@@ -360,11 +542,18 @@ def run_learn(dry_run: bool, now: datetime | None = None,
                 "title": title,
                 "topic": topic,
                 "html": section_html,
+                "due": r["due"],
+                "stability": r["stability"],
+                "review_count": r["review_count"],
+                "sequence": r["sequence"] if "sequence" in r.keys() else None,
             })
 
     if not picked:
+        print("[learn] no due notes")
         conn.close()
         return False
+
+    _log_pick("learn", picked)
 
     if dry_run:
         conn.close()
@@ -394,7 +583,7 @@ def run_quiz(dry_run: bool, now: datetime | None = None,
     conn = get_db()
 
     rows = conn.execute(
-        """SELECT id, path, title, topic, difficulty, stability, difficulty_fsrs, last_sent
+        f"""SELECT {NOTE_SELECT_COLS}
            FROM notes
            WHERE last_sent IS NOT NULL
            ORDER BY last_sent ASC
@@ -404,7 +593,7 @@ def run_quiz(dry_run: bool, now: datetime | None = None,
 
     if not rows:
         rows = conn.execute(
-            """SELECT id, path, title, topic, difficulty, stability, difficulty_fsrs, last_sent
+            f"""SELECT {NOTE_SELECT_COLS}
                FROM notes
                ORDER BY RANDOM()
                LIMIT ?""",
@@ -412,14 +601,27 @@ def run_quiz(dry_run: bool, now: datetime | None = None,
         ).fetchall()
 
     if not rows:
+        print("[quiz] no notes available")
         conn.close()
         return False
+
+    preview = [{
+        "path": r["path"],
+        "title": r["title"],
+        "topic": r["topic"],
+        "due": r["due"],
+        "stability": r["stability"],
+        "review_count": r["review_count"],
+        "sequence": r["sequence"] if "sequence" in r.keys() else None,
+    } for r in rows]
+    _log_pick("quiz", preview)
 
     if dry_run:
         conn.close()
         return True
 
     quiz_sections = []
+    used_titles = []
 
     for r in rows:
         raw = read_note_content(r["path"])
@@ -439,14 +641,16 @@ def run_quiz(dry_run: bool, now: datetime | None = None,
   {qa_html}
 </div>"""
         quiz_sections.append(section)
+        used_titles.append(title)
 
     if not quiz_sections:
+        print("[quiz] quiz generation produced no sections (need GROQ_API_KEY?)")
         conn.close()
         return False
 
     body_html = "\n".join(quiz_sections)
     full_html = HEADER_HTML.format(date=today_str, body=body_html)
-    subject = _make_subject("Quiz", [r["title"] for r in rows])
+    subject = _make_subject("Quiz", used_titles or [r["title"] for r in rows])
 
     if send_fn:
         send_fn(subject, full_html, send_at=None)
