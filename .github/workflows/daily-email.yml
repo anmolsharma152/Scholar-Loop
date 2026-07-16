@@ -2,7 +2,8 @@ name: daily-email
 
 on:
   schedule:
-    - cron: '13 3 * * *'   # 03:13 UTC = 08:43 IST — off-peak, avoids queue
+    - cron: '13 3 * * *'   # 03:13 UTC = 08:43 IST (Learn)
+    - cron: '13 10 * * *'  # 10:13 UTC = 15:43 IST (Quiz)
   workflow_dispatch:
 
 permissions:
@@ -13,12 +14,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Restore user.db from git
+        run: git show HEAD:data/user.db > data/user.db 2>/dev/null || echo "no prior db, will create fresh"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - run: pip install -r requirements.txt
-      - name: Send learn + quiz
-        run: python agent/send_daily.py
+      - name: Send learn or quiz based on time
+        run: |
+          HOUR=$(date -u +%H)
+          if [ "$HOUR" -lt "8" ]; then
+            python agent/send_daily.py --mode learn
+          else
+            python agent/send_daily.py --mode quiz
+          fi
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           RECIPIENT: ${{ secrets.RECIPIENT }}

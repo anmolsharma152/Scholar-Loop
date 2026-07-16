@@ -15,15 +15,14 @@ import sqlite3
 import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from typing import Callable
 
 import frontmatter
 import markdown
 from fsrs import Scheduler, Card, Rating
 from openai import OpenAI
+from premailer import transform
 
-# ---------------------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------------------
 
 KNOWLEDGE_DIR = Path(__file__).resolve().parent.parent / "knowledge"
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "user.db"
@@ -33,13 +32,6 @@ RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
 RECIPIENT = os.environ.get("RECIPIENT")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
-NOW = datetime.now(timezone.utc)
-TODAY = NOW.strftime("%A, %d %b %Y")
-
-# FSRS
-SCHEDULER = Scheduler(desired_retention=0.8)
-
-# Topic weights for proportional selection
 TOPIC_WEIGHTS = {
     "dsa": 0.35,
     "system-design": 0.20,
@@ -52,11 +44,7 @@ TOPIC_WEIGHTS = {
 
 NOTES_PER_LEARN = 4
 NOTES_PER_QUIZ = 4
-MAX_NOTES_TOTAL = 5  # Cap total notes across all topics per email
-
-# ---------------------------------------------------------------------------
-# HTML templates
-# ---------------------------------------------------------------------------
+MAX_NOTES_TOTAL = 5
 
 HEADER_HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -83,8 +71,8 @@ HEADER_HTML = """<!DOCTYPE html>
   .content th, .content td {{ border:1px solid #e5e7eb; padding:8px 12px; text-align:left; font-size:14px; }}
   .content th {{ background:#f9fafb; font-weight:700; }}
   .quiz-q {{ font-weight:700; color:#111827; margin:16px 0 4px; }}
-  .quiz-spoiler summary {{ cursor:pointer; color:#4f46e5; font-weight:600; font-size:14px; padding:4px 0; }}
-  .quiz-spoiler {{ margin:0 0 20px; }}
+  .quiz-spoiler {{ color:#fff; background-color:#fff; border:1px solid #e5e7eb; padding:10px; border-radius:4px; margin:8px 0 24px; font-size:15px; }}
+  .quiz-spoiler em {{ color:#d1d5db; font-style:italic; font-size:12px; margin-right:8px; }}
 </style>
 </head>
 <body>
@@ -103,10 +91,6 @@ HEADER_HTML = """<!DOCTYPE html>
 </body>
 </html>"""
 
-# ---------------------------------------------------------------------------
-# DB helpers
-# ---------------------------------------------------------------------------
-
 TOPIC_DIRS = [
     "dsa", "system-design", "ml-ai", "fullstack", "papers",
     "agentic-ai", "sql"
@@ -114,25 +98,28 @@ TOPIC_DIRS = [
 SKIP_FILES = {"README.md"}
 
 
-def get_db():
+def get_db() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     return conn
 
 
-def count_due(conn, topic: str) -> int:
-    """Number of notes due for this topic."""
+def count_due(conn, topic: str, now: datetime | None = None) -> int:
+    if now is None:
+        now = datetime.now(timezone.utc)
     return conn.execute(
         "SELECT COUNT(*) FROM notes WHERE topic=? AND (due IS NULL OR due <= ?)",
-        (topic, NOW.isoformat())
+        (topic, now.isoformat())
     ).fetchone()[0]
 
 
-def pick_due_notes(conn, topic: str, count: int, exclude_ids: set = None) -> list[sqlite3.Row]:
-    """Pick `count` due notes from a topic, lowest retrievability first."""
+def pick_due_notes(conn, topic: str, count: int, exclude_ids: set = None,
+                   now: datetime | None = None) -> list[sqlite3.Row]:
+    if now is None:
+        now = datetime.now(timezone.utc)
     exclude_clause = ""
-    params = [topic, NOW.isoformat()]
+    params = [topic, now.isoformat()]
     if exclude_ids:
         placeholders = ",".join("?" for _ in exclude_ids)
         exclude_clause = f" AND id NOT IN ({placeholders})"
@@ -144,15 +131,18 @@ def pick_due_notes(conn, topic: str, count: int, exclude_ids: set = None) -> lis
             FROM notes
             WHERE topic=? AND (due IS NULL OR due <= ?)
             {exclude_clause}
-            ORDER BY due ASC NULLS FIRST
+            ORDER BY due ASC NULLS FIRST, RANDOM()
             LIMIT ?""",
         (*params, count)
     ).fetchall()
     return rows
 
 
-def compute_retrievability(stability: float, difficulty: float, last_sent: str | None) -> float:
-    """FSRS retrievability at NOW. Returns 0.0 if never sent."""
+def compute_retrievability(stability: float, difficulty: float,
+                           last_sent: str | None,
+                           now: datetime | None = None) -> float:
+    if now is None:
+        now = datetime.now(timezone.utc)
     if not last_sent or stability <= 0:
         return 0.0
     try:
@@ -161,27 +151,50 @@ def compute_retrievability(stability: float, difficulty: float, last_sent: str |
             last = last.replace(tzinfo=timezone.utc)
     except (ValueError, TypeError):
         return 0.0
-    elapsed = (NOW - last).days
-    if elapsed < 0:
-        elapsed = 0
-    # Retrievability formula from FSRS
-    R = (1 + 2.71828 ** ((elapsed * (1.1 - difficulty / 10)) / stability - 1.09 * difficulty + 7.37)) ** -1
-    return max(R, 0.0)
+    elapsed_days = (now - last).total_seconds() / 86400.0
+    if elapsed_days < 0:
+        elapsed_days = 0
+    # FSRS-5 retrievability: R = (1 + 19/81 * elapsed / stability * ...)^{-1}
+    # Simplified: R = 2^(-elapsed / stability)
+    # For S > 0, this is a standard exponential forgetting curve
+    import math
+    decay = math.pow(2.0, -elapsed_days / max(stability, 0.01))
+    return max(decay, 0.0)
 
 
-def mark_sent(conn, note_id: int):
-    now_iso = NOW.isoformat()
-    conn.execute(
-        """UPDATE notes SET last_sent=?, review_count=review_count+1, due=?
-           WHERE id=?""",
-        (now_iso, now_iso, note_id)
-    )
-    conn.commit()
+def mark_sent(conn, note_id: int, now: datetime | None = None):
+    if now is None:
+        now = datetime.now(timezone.utc)
+    
+    row = conn.execute(
+        "SELECT stability, difficulty_fsrs, review_count, last_sent FROM notes WHERE id=?", 
+        (note_id,)
+    ).fetchone()
+    
+    if row:
+        card = Card()
+        card.stability = row["stability"]
+        card.difficulty = row["difficulty_fsrs"]
+        card.reps = row["review_count"]
+        if row["last_sent"]:
+            try:
+                dt = datetime.fromisoformat(row["last_sent"])
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                card.last_review = dt
+            except:
+                pass
+        
+        scheduler = Scheduler()
+        card, _ = scheduler.review_card(card, Rating.Good, now)
+        
+        conn.execute(
+            """UPDATE notes SET last_sent=?, review_count=?, due=?, stability=?, difficulty_fsrs=?
+               WHERE id=?""",
+            (now.isoformat(), card.reps, card.due.isoformat(), card.stability, card.difficulty, note_id)
+        )
+        conn.commit()
 
-
-# ---------------------------------------------------------------------------
-# Learn mode: pick notes, read .md, render
-# ---------------------------------------------------------------------------
 
 def read_note_content(path: str) -> str:
     full = KNOWLEDGE_DIR.parent / path
@@ -200,12 +213,9 @@ def extract_title(content: str) -> str:
 
 
 def strip_h1(content: str) -> str:
-    """Remove the first # H1 heading — title is rendered separately."""
     lines = content.splitlines()
-    # Find first non-empty line that starts with "# "
     for i, line in enumerate(lines):
         if line.strip().startswith("# "):
-            # Remove it and any following blank lines
             j = i + 1
             while j < len(lines) and lines[j].strip() == "":
                 j += 1
@@ -228,13 +238,12 @@ def format_note_section(row, content_html: str) -> str:
     <span class="tag-topic">{topic}</span>
     <span class="tag-diff">{diff}</span>
   </div>
-  <h2>{row["title"]}</h2>
+  <h2>&#x1F4DD; {row["title"]}</h2>
   <div class="content">{content_html}</div>
 </div>"""
 
 
 def generate_quiz_qas(content: str, title: str, topic: str) -> str | None:
-    """Use Groq to generate quiz Q&A from raw note content. Returns HTML string."""
     if not GROQ_API_KEY:
         return None
     try:
@@ -244,19 +253,13 @@ def generate_quiz_qas(content: str, title: str, topic: str) -> str | None:
 Each question must follow this exact format:
 
 Q1. [question text]
-<details class="quiz-spoiler"><summary>Show answer</summary>
-Answer: [concise answer]
-</details>
+<div class="quiz-spoiler"><em>(Highlight to reveal)</em> Answer: [concise answer]</div>
 
 Q2. [question text]
-<details class="quiz-spoiler"><summary>Show answer</summary>
-Answer: [concise answer]
-</details>
+<div class="quiz-spoiler"><em>(Highlight to reveal)</em> Answer: [concise answer]</div>
 
 Q3. [question text]
-<details class="quiz-spoiler"><summary>Show answer</summary>
-Answer: [concise answer]
-</details>
+<div class="quiz-spoiler"><em>(Highlight to reveal)</em> Answer: [concise answer]</div>
 
 Rules:
 - Questions must be answerable from the note content alone.
@@ -285,44 +288,61 @@ Note content:
         return None
 
 
-# ---------------------------------------------------------------------------
-# Learn (morning email)
-# ---------------------------------------------------------------------------
+def _make_subject(prefix: str, titles: list[str]) -> str:
+    prefix_str = f" {prefix}: " if prefix else ": "
+    if len(titles) <= 4:
+        return f"Scholar-Loop{prefix_str}" + ", ".join(titles)
+    return f"Scholar-Loop{prefix_str}" + ", ".join(titles[:3]) + f" +{len(titles) - 3} more"
 
-def run_learn(dry_run: bool) -> bool:
-    conn = get_db()
-    picked = []
-    seen_ids = set()
 
-    # Proportional selection by topic weight
-    total_slots = NOTES_PER_LEARN
-    topic_slots = {}
-    for topic, weight in sorted(TOPIC_WEIGHTS.items(), key=lambda x: -x[1]):
-        available = count_due(conn, topic)
+def compute_topic_slots(weights: dict, total_slots: int,
+                        count_fn: Callable[[str], int]) -> dict[str, int]:
+    topic_slots: dict[str, int] = {}
+    for topic, weight in sorted(weights.items(), key=lambda x: -x[1]):
+        available = count_fn(topic)
         if available == 0:
             continue
         slots = max(1, round(total_slots * weight))
         slots = min(slots, available)
         topic_slots[topic] = slots
 
-    # Fill remaining slots in case rounding undershoots
     filled = sum(topic_slots.values())
     if filled < total_slots:
-        for topic in TOPIC_WEIGHTS:
+        for topic in weights:
             if topic in topic_slots:
-                available = count_due(conn, topic)
+                available = count_fn(topic)
                 extra = min(total_slots - filled, available - topic_slots[topic])
                 if extra > 0:
                     topic_slots[topic] += extra
                     filled += extra
                     if filled >= total_slots:
                         break
+    return topic_slots
+
+
+# ---------------------------------------------------------------------------
+# Run modes
+# ---------------------------------------------------------------------------
+
+def run_learn(dry_run: bool, now: datetime | None = None,
+              send_fn: Callable | None = None) -> bool:
+    if now is None:
+        now = datetime.now(timezone.utc)
+    today_str = now.strftime("%A, %d %b %Y")
+    conn = get_db()
+    picked = []
+    seen_ids = set()
+
+    topic_slots = compute_topic_slots(
+        TOPIC_WEIGHTS, NOTES_PER_LEARN,
+        lambda t: count_due(conn, t, now)
+    )
 
     for topic, slots in topic_slots.items():
         if len(picked) >= MAX_NOTES_TOTAL:
             break
         allowed = min(slots, MAX_NOTES_TOTAL - len(picked))
-        rows = pick_due_notes(conn, topic, allowed, exclude_ids=seen_ids)
+        rows = pick_due_notes(conn, topic, allowed, exclude_ids=seen_ids, now=now)
         for r in rows:
             seen_ids.add(r["id"])
             path = r["path"]
@@ -343,43 +363,36 @@ def run_learn(dry_run: bool) -> bool:
             })
 
     if not picked:
-        print("no notes due for learn")
         conn.close()
         return False
 
     if dry_run:
-        for p in picked:
-            print(f"  [learn] {p['topic']:15s} {p['title']}")
         conn.close()
         return True
 
-    # Send
     sections_html = "".join(p["html"] for p in picked)
-    full_html = HEADER_HTML.format(date=TODAY, body=sections_html)
-    subject = "Scholar-Loop: " + ", ".join(p["title"] for p in picked[:3])
-    if len(picked) > 3:
-        subject += f" +{len(picked) - 3} more"
+    full_html = HEADER_HTML.format(date=today_str, body=sections_html)
+    subject = _make_subject("", [p["title"] for p in picked])
 
-    _send_email(subject, full_html, send_at=None)  # immediate
+    if send_fn:
+        send_fn(subject, full_html, send_at=None)
+    else:
+        _send_email(subject, full_html, send_at=None)
 
-    # Mark sent
     for p in picked:
-        mark_sent(conn, p["id"])
+        mark_sent(conn, p["id"], now)
 
     conn.close()
-    print(f"learn sent: {len(picked)} notes")
     return True
 
 
-# ---------------------------------------------------------------------------
-# Quiz (evening email)
-# ---------------------------------------------------------------------------
-
-def run_quiz(dry_run: bool) -> bool:
+def run_quiz(dry_run: bool, now: datetime | None = None,
+             send_fn: Callable | None = None) -> bool:
+    if now is None:
+        now = datetime.now(timezone.utc)
+    today_str = now.strftime("%A, %d %b %Y")
     conn = get_db()
 
-    # Pick notes that were sent before today (ever reviewed)
-    # Prioritize ones with lowest retrievability (due soon)
     rows = conn.execute(
         """SELECT id, path, title, topic, difficulty, stability, difficulty_fsrs, last_sent
            FROM notes
@@ -390,7 +403,6 @@ def run_quiz(dry_run: bool) -> bool:
     ).fetchall()
 
     if not rows:
-        # Fallback: any note (brand new, just quiz on something)
         rows = conn.execute(
             """SELECT id, path, title, topic, difficulty, stability, difficulty_fsrs, last_sent
                FROM notes
@@ -400,13 +412,10 @@ def run_quiz(dry_run: bool) -> bool:
         ).fetchall()
 
     if not rows:
-        print("no notes available for quiz")
         conn.close()
         return False
 
     if dry_run:
-        for r in rows:
-            print(f"  [quiz]  {r['topic']:15s} {r['title']}")
         conn.close()
         return True
 
@@ -426,31 +435,25 @@ def run_quiz(dry_run: bool) -> bool:
     <span class="tag-topic">{r["topic"]}</span>
     <span class="tag-diff">{r["difficulty"] or "medium"}</span>
   </div>
-  <h2>🧩 {title}</h2>
+  <h2>&#x1F9E9; {title}</h2>
   {qa_html}
 </div>"""
         quiz_sections.append(section)
 
     if not quiz_sections:
-        print("quiz generation produced no output")
         conn.close()
         return False
 
     body_html = "\n".join(quiz_sections)
-    full_html = HEADER_HTML.format(date=TODAY, body=body_html)
-    subject = "Scholar-Loop Quiz: " + ", ".join(r["title"] for r in rows[:3])
-    if len(rows) > 3:
-        subject += f" +{len(rows) - 3} more"
+    full_html = HEADER_HTML.format(date=today_str, body=body_html)
+    subject = _make_subject("Quiz", [r["title"] for r in rows])
 
-    # Schedule for 4 PM IST (10:30 UTC)
-    evening = NOW.replace(hour=10, minute=30, second=0, microsecond=0)
-    if evening <= NOW:
-        evening += timedelta(days=1)
-    send_at = evening.isoformat()
+    if send_fn:
+        send_fn(subject, full_html, send_at=None)
+    else:
+        _send_email(subject, full_html, send_at=None)
 
-    _send_email(subject, full_html, send_at=send_at)
     conn.close()
-    print(f"quiz sent: {len(quiz_sections)} notes, scheduled for {send_at}")
     return True
 
 
@@ -460,6 +463,7 @@ def run_quiz(dry_run: bool) -> bool:
 
 def _send_email(subject: str, html: str, send_at: str | None):
     import httpx
+    html = transform(html)
 
     if not RESEND_API_KEY or not RECIPIENT:
         print("error: RESEND_API_KEY and RECIPIENT must be set", file=sys.stderr)
@@ -486,7 +490,6 @@ def _send_email(subject: str, html: str, send_at: str | None):
     if resp.status_code >= 400:
         print(f"error sending: {resp.status_code} {resp.text}", file=sys.stderr)
         sys.exit(1)
-    print(f"email sent: {subject}" + (f" (scheduled {send_at})" if send_at else ""))
 
 
 # ---------------------------------------------------------------------------
