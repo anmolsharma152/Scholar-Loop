@@ -31,6 +31,8 @@ def create_schema(conn: sqlite3.Connection):
             elapsed_days INTEGER DEFAULT 0,
             review_count INTEGER DEFAULT 0,
             last_sent TEXT,
+            state INTEGER DEFAULT 1,
+            step INTEGER,
             created_at TEXT DEFAULT (datetime('now'))
         );
 
@@ -45,6 +47,19 @@ def create_schema(conn: sqlite3.Connection):
         CREATE INDEX IF NOT EXISTS idx_notes_topic ON notes(topic);
         CREATE INDEX IF NOT EXISTS idx_notes_due ON notes(due);
         CREATE INDEX IF NOT EXISTS idx_reviews_note ON reviews(note_id);
+    """)
+    # Migrate older DBs that predate FSRS state/step columns.
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(notes)")}
+    if "state" not in cols:
+        conn.execute("ALTER TABLE notes ADD COLUMN state INTEGER DEFAULT 1")
+    if "step" not in cols:
+        conn.execute("ALTER TABLE notes ADD COLUMN step INTEGER")
+    conn.execute("""
+        UPDATE notes
+        SET state = 2, step = NULL
+        WHERE last_sent IS NOT NULL
+          AND review_count > 0
+          AND (state IS NULL OR state = 1)
     """)
     conn.commit()
 
