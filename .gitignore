@@ -11,3 +11,8 @@ dist/
 build/
 .pytest_cache/
 .mypy_cache/
+
+# Agentic AI Notes
+docs/opencode_handoff_fixes.md
+docs/task.md
+docs/implementation_plan*.md
