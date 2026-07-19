@@ -30,9 +30,11 @@ def _patch_knowledge_dir(tmp_knowledge_dir):
 def tmp_knowledge_dir():
     """Create a temporary knowledge directory with test .md files."""
     tmp = Path(tempfile.mkdtemp())
-    topics = ["dsa", "ml-ai", "system-design", "sql"]
+    topics = ["dsa", "ml-ai", "system-design", "fullstack"]
     for t in topics:
         (tmp / t).mkdir(parents=True)
+    # sql is now a subdirectory of fullstack
+    (tmp / "fullstack" / "sql").mkdir(parents=True)
 
     notes = {
         "dsa/binary-search.md": """---
@@ -77,7 +79,7 @@ Transformer architecture uses self-attention mechanisms.
 - Feed-forward networks
 - Positional encoding""",
 
-        "sql/joins.md": """---
+        "fullstack/sql/joins.md": """---
 difficulty: medium
 tags: ["sql", "joins"]
 ---

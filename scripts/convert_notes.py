@@ -26,12 +26,10 @@ LLM_MODEL = os.environ.get("LLM_MODEL", "llama-3.3-70b-versatile")
 
 TOPIC_KEYWORDS = {
     "dsa": ["algorithm", "data structure", "tree", "graph", "sort", "search", "dynamic programming", "greedy", "stack", "queue", "hash", "linked list", "array", "recursion", "backtracking", "binary", "heap", "trie", "bfs", "dfs"],
-    "system-design": ["system design", "scalability", "distributed", "load balancer", "caching", "cdn", "microservice", "api gateway", "database design", "high availability", "consistent hashing", "message queue"],
+    "system-design": ["system design", "scalability", "distributed", "load balancer", "caching", "cdn", "microservice", "api gateway", "database design", "high availability", "consistent hashing", "message queue", "agent", "agentic", "llm", "prompt engineering", "rag", "retrieval augmented", "tool use", "function calling", "multi-agent", "chain of thought", "reasoning"],
     "ml-ai": ["machine learning", "deep learning", "neural network", "transformer", "attention", "cnn", "rnn", "lstm", "gan", "reinforcement learning", "nlp", "computer vision", "optimization", "gradient", "loss function", "overfitting", "regularization", "classification", "regression", "clustering"],
-    "fullstack": ["react", "fastapi", "django", "flask", "typescript", "javascript", "python", "async", "database", "sql", "rest api", "graphql", "html", "css", "node", "docker", "kubernetes", "ci/cd", "testing"],
+    "fullstack": ["react", "fastapi", "django", "flask", "typescript", "javascript", "python", "async", "database", "sql", "rest api", "graphql", "html", "css", "node", "docker", "kubernetes", "ci/cd", "testing", "sql", "query", "join", "index", "transaction", "normalization", "aggregation", "subquery", "window function", "stored procedure", "view", "trigger", "postgresql", "mysql", "database"],
     "papers": ["paper", "research", "arxiv", "abstract", "methodology", "experiment", "benchmark", "state of the art", "sota", "novel approach"],
-    "agentic-ai": ["agent", "agentic", "llm", "prompt engineering", "rag", "retrieval augmented", "tool use", "function calling", "multi-agent", "chain of thought", "reasoning"],
-    "sql": ["sql", "query", "join", "index", "transaction", "normalization", "aggregation", "subquery", "window function", "stored procedure", "view", "trigger", "postgresql", "mysql", "database"],
 }
 
 CONVERSION_PROMPT = """Convert this document into a concise study note (400-600 words).
@@ -40,7 +38,7 @@ Output format: YAML frontmatter + markdown body.
 
 Frontmatter fields (exact names):
 - title: clear, descriptive title
-- topic: one of [dsa, system-design, ml-ai, fullstack, papers, agentic-ai, sql]
+- topic: one of [dsa, system-design, ml-ai, fullstack, papers]
 - difficulty: one of [easy, medium, hard]
 - tags: list of 2-4 relevant tags
 - created: today's date in ISO format

@@ -22,7 +22,7 @@ class TestClassifyTopic:
 
     def test_sql_keywords(self):
         text = "JOIN queries with indexes and transactions"
-        assert classify_topic(text, "db.pdf") == "sql"
+        assert classify_topic(text, "db.pdf") == "fullstack"
 
     def test_empty_text_falls_back_to_papers(self):
         assert classify_topic("", "unknown.pdf") == "papers"
@@ -30,11 +30,11 @@ class TestClassifyTopic:
     def test_filename_contributes_to_score(self):
         text = "random content here"
         filename = "understanding-sql-joins.pdf"
-        assert classify_topic(text, filename) == "sql"
+        assert classify_topic(text, filename) == "fullstack"
 
     def test_agentic_keywords(self):
         text = "Agentic AI with RAG and tool use for reasoning"
-        assert classify_topic(text, "agent.pdf") == "agentic-ai"
+        assert classify_topic(text, "agent.pdf") == "system-design"
 
     def test_fullstack_keywords(self):
         text = "Building with React and FastAPI with Docker"

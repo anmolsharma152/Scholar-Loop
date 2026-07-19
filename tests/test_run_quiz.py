@@ -145,11 +145,11 @@ class TestRunQuiz:
 
         fake_qa = (
             'Q1. What is binary search?\n'
-            '<div class="quiz-spoiler"><em>(Highlight to reveal)</em> Answer: O(log n)</div>\n'
+            '<div class="quiz-answer"><span class="answer-label">Answer:</span> O(log n)</div>\n'
             'Q2. Requirement?\n'
-            '<div class="quiz-spoiler"><em>(Highlight to reveal)</em> Answer: sorted array</div>\n'
+            '<div class="quiz-answer"><span class="answer-label">Answer:</span> sorted array</div>\n'
             'Q3. Complexity?\n'
-            '<div class="quiz-spoiler"><em>(Highlight to reveal)</em> Answer: logarithmic</div>'
+            '<div class="quiz-answer"><span class="answer-label">Answer:</span> logarithmic</div>'
         )
 
         with patch("agent.send_daily.generate_quiz_qas", return_value=fake_qa):
@@ -158,5 +158,5 @@ class TestRunQuiz:
         assert result is True
         assert len(sent) == 1
         assert sent[0]["send_at"] is None  # dual-cron: send now
-        assert "Scholar-Loop Quiz" in sent[0]["subj"]
-        assert "quiz-spoiler" in sent[0]["html"]
+        assert "\U0001f9e9 Scholar-Loop Quiz" in sent[0]["subj"]
+        assert "quiz-answer" in sent[0]["html"]

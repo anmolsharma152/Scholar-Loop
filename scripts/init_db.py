@@ -10,7 +10,7 @@ import frontmatter
 
 KNOWLEDGE_DIR = Path(__file__).resolve().parent.parent / "knowledge"
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "user.db"
-TOPIC_DIRS = ["dsa", "system-design", "ml-ai", "fullstack", "papers", "agentic-ai", "sql"]
+TOPIC_DIRS = ["dsa", "system-design", "ml-ai", "fullstack", "papers"]
 SKIP_FILES = {"README.md"}
 
 

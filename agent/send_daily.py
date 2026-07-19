@@ -32,13 +32,11 @@ RECIPIENT = os.environ.get("RECIPIENT")
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 TOPIC_WEIGHTS = {
-    "dsa": 0.35,
-    "system-design": 0.20,
-    "sql": 0.10,
-    "fullstack": 0.10,
-    "ml-ai": 0.10,
-    "papers": 0.08,
-    "agentic-ai": 0.07,
+    "dsa": 0.28,
+    "ml-ai": 0.22,
+    "papers": 0.20,
+    "system-design": 0.16,
+    "fullstack": 0.14,
 }
 
 NOTES_PER_LEARN = 4
@@ -74,8 +72,8 @@ HEADER_HTML = """<!DOCTYPE html>
   .content th, .content td {{ border:1px solid #e5e7eb; padding:8px 12px; text-align:left; font-size:14px; }}
   .content th {{ background:#f9fafb; font-weight:700; }}
   .quiz-q {{ font-weight:700; color:#111827; margin:16px 0 4px; }}
-  .quiz-spoiler {{ color:#fff; background-color:#fff; border:1px solid #e5e7eb; padding:10px; border-radius:4px; margin:8px 0 24px; font-size:15px; }}
-  .quiz-spoiler em {{ color:#d1d5db; font-style:italic; font-size:12px; margin-right:8px; }}
+  .quiz-answer {{ background:#f0fdf4; border-left:4px solid #22c55e; border-radius:0 8px 8px 0; padding:12px 16px; margin:4px 0 24px; font-size:15px; line-height:1.6; }}
+  .answer-label {{ font-weight:700; color:#15803d; }}
 </style>
 </head>
 <body>
@@ -96,7 +94,6 @@ HEADER_HTML = """<!DOCTYPE html>
 
 TOPIC_DIRS = [
     "dsa", "system-design", "ml-ai", "fullstack", "papers",
-    "agentic-ai", "sql"
 ]
 SKIP_FILES = {"README.md"}
 
@@ -418,13 +415,13 @@ def generate_quiz_qas(content: str, title: str, topic: str) -> str | None:
 Each question must follow this exact format:
 
 Q1. [question text]
-<div class="quiz-spoiler"><em>(Highlight to reveal)</em> Answer: [concise answer]</div>
+<div class="quiz-answer"><span class="answer-label">Answer:</span> [concise answer]</div>
 
 Q2. [question text]
-<div class="quiz-spoiler"><em>(Highlight to reveal)</em> Answer: [concise answer]</div>
+<div class="quiz-answer"><span class="answer-label">Answer:</span> [concise answer]</div>
 
 Q3. [question text]
-<div class="quiz-spoiler"><em>(Highlight to reveal)</em> Answer: [concise answer]</div>
+<div class="quiz-answer"><span class="answer-label">Answer:</span> [concise answer]</div>
 
 Rules:
 - Questions must be answerable from the note content alone.
@@ -453,11 +450,10 @@ Note content:
         return None
 
 
-def _make_subject(prefix: str, titles: list[str]) -> str:
-    prefix_str = f" {prefix}: " if prefix else ": "
-    if len(titles) <= 4:
-        return f"Scholar-Loop{prefix_str}" + ", ".join(titles)
-    return f"Scholar-Loop{prefix_str}" + ", ".join(titles[:3]) + f" +{len(titles) - 3} more"
+def _make_subject(mode: str) -> str:
+    if mode == "quiz":
+        return "\U0001f9e9 Scholar-Loop Quiz"
+    return "\U0001f4dd Scholar-Loop"
 
 
 def compute_topic_slots(weights: dict, total_slots: int,
@@ -561,7 +557,7 @@ def run_learn(dry_run: bool, now: datetime | None = None,
 
     sections_html = "".join(p["html"] for p in picked)
     full_html = HEADER_HTML.format(date=today_str, body=sections_html)
-    subject = _make_subject("", [p["title"] for p in picked])
+    subject = _make_subject("learn")
 
     if send_fn:
         send_fn(subject, full_html, send_at=None)
@@ -586,7 +582,7 @@ def run_quiz(dry_run: bool, now: datetime | None = None,
         f"""SELECT {NOTE_SELECT_COLS}
            FROM notes
            WHERE last_sent IS NOT NULL
-           ORDER BY last_sent ASC
+           ORDER BY RANDOM()
            LIMIT ?""",
         (NOTES_PER_QUIZ,)
     ).fetchall()
@@ -621,7 +617,6 @@ def run_quiz(dry_run: bool, now: datetime | None = None,
         return True
 
     quiz_sections = []
-    used_titles = []
 
     for r in rows:
         raw = read_note_content(r["path"])
@@ -641,7 +636,6 @@ def run_quiz(dry_run: bool, now: datetime | None = None,
   {qa_html}
 </div>"""
         quiz_sections.append(section)
-        used_titles.append(title)
 
     if not quiz_sections:
         print("[quiz] quiz generation produced no sections (need GROQ_API_KEY?)")
@@ -650,7 +644,7 @@ def run_quiz(dry_run: bool, now: datetime | None = None,
 
     body_html = "\n".join(quiz_sections)
     full_html = HEADER_HTML.format(date=today_str, body=body_html)
-    subject = _make_subject("Quiz", used_titles or [r["title"] for r in rows])
+    subject = _make_subject("quiz")
 
     if send_fn:
         send_fn(subject, full_html, send_at=None)
