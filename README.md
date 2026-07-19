@@ -4,6 +4,8 @@
 
 Built on [FSRS](https://github.com/open-spaced-repetition/fsrs4anki) scheduling, proportional topic allocation, optional DSA curriculum order, Groq quizzes, Resend delivery, and GitHub Actions.
 
+**Portfolio:** Scholar-Loop owns *retain knowledge on a schedule* only. Not ops (Ozyman), not job boards (Disha), not creative synthesis (IdeaForge). See [docs/portfolio-product-boundaries.md](./docs/portfolio-product-boundaries.md).
+
 ---
 
 ## How it works
