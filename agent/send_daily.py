@@ -405,7 +405,7 @@ def format_note_section(row, content_html: str) -> str:
 </div>"""
 
 
-def generate_quiz_qas(content: str, title: str, topic: str) -> str | None:
+def generate_quiz_qas(content: str, title: str, topic: str) -> tuple[str, str] | None:
     if not GROQ_API_KEY:
         return None
     try:
@@ -415,19 +415,19 @@ def generate_quiz_qas(content: str, title: str, topic: str) -> str | None:
 Each question must follow this exact format:
 
 Q1. [question text]
-<div class="quiz-answer"><span class="answer-label">Answer:</span> [concise answer]</div>
+A1. [concise answer]
 
 Q2. [question text]
-<div class="quiz-answer"><span class="answer-label">Answer:</span> [concise answer]</div>
+A2. [concise answer]
 
 Q3. [question text]
-<div class="quiz-answer"><span class="answer-label">Answer:</span> [concise answer]</div>
+A3. [concise answer]
 
 Rules:
 - Questions must be answerable from the note content alone.
 - Answers must be factual, specific, and 1-3 sentences.
 - Do NOT include the questions' answers anywhere else in the output.
-- Output only the 3 Q&A blocks, nothing else.
+- Output only the 3 Q&A pairs, nothing else.
 
 Note title: {title}
 Topic: {topic}
@@ -442,18 +442,64 @@ Note content:
             max_tokens=2048,
         )
         result = resp.choices[0].message.content.strip()
-        if len(result) < 50:
+        
+        # Parse the Q1/A1 format
+        questions_html = []
+        answers_html = []
+        
+        lines = result.split("\n")
+        q_count = 1
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            if line.startswith("Q") and ". " in line[:5]:
+                questions_html.append(f'<div class="quiz-q">{line}</div>')
+            elif line.startswith("A") and ". " in line[:5]:
+                # Style the answer block like a newsletter answer
+                answer_text = line.split(". ", 1)[1] if ". " in line else line
+                answers_html.append(f'<div class="quiz-answer"><strong>Q{q_count}:</strong> {answer_text}</div>')
+                q_count += 1
+                
+        if not questions_html or not answers_html:
             return None
-        return result
+            
+        return "\n".join(questions_html), "\n".join(answers_html)
     except Exception as e:
         print(f"  [warn] quiz gen failed: {e}", file=sys.stderr)
         return None
 
 
-def _make_subject(mode: str) -> str:
+def _make_subject(mode: str, topics: list[str]) -> str:
+    # Deduplicate and format topics nicely
+    unique_topics = []
+    for t in topics:
+        if t not in unique_topics:
+            unique_topics.append(t)
+            
+    # Map raw topic names to readable names if desired, e.g., 'ml-ai' -> 'ML/AI'
+    display_topics = []
+    for t in unique_topics:
+        if t == "dsa": display_topics.append("DSA")
+        elif t == "ml-ai": display_topics.append("ML")
+        elif t == "system-design": display_topics.append("System Design")
+        elif t == "fullstack": display_topics.append("Fullstack")
+        else: display_topics.append(t.title())
+        
+    t_str = ""
+    if len(display_topics) > 1:
+        t_str = ", ".join(display_topics[:-1]) + ", and " + display_topics[-1]
+    elif len(display_topics) == 1:
+        t_str = display_topics[0]
+        
     if mode == "quiz":
-        return "\U0001f9e9 Scholar-Loop Quiz"
-    return "\U0001f4dd Scholar-Loop"
+        if t_str:
+            return f"🧩 Scholar-Loop Quiz: Testing your knowledge on {t_str}"
+        return "🧩 Scholar-Loop Quiz"
+    else:
+        if t_str:
+            return f"📝 Scholar-Loop: Today's focus is on {t_str}"
+        return "📝 Scholar-Loop"
 
 
 def compute_topic_slots(weights: dict, total_slots: int,
@@ -516,12 +562,20 @@ def run_learn(dry_run: bool, now: datetime | None = None,
     if dry_run:
         print(f"[learn] topic slots: {topic_slots}")
 
+    total_words = 0
+    MAX_WORDS = 1500
+
     for topic, slots in topic_slots.items():
         if len(picked) >= MAX_NOTES_TOTAL:
             break
         allowed = min(slots, MAX_NOTES_TOTAL - len(picked))
         rows = pick_due_notes(conn, topic, allowed, exclude_ids=seen_ids, now=now)
         for r in rows:
+            words = r["word_count"] or 0
+            if len(picked) >= 2 and total_words + words > MAX_WORDS:
+                # Skip this note if we already have 2 notes and it makes the email too long
+                continue
+                
             seen_ids.add(r["id"])
             path = r["path"]
             raw = read_note_content(path)
@@ -532,6 +586,7 @@ def run_learn(dry_run: bool, now: datetime | None = None,
             content_html = render_markdown(content_no_h1)
             section_html = format_note_section(r, content_html)
 
+            total_words += words
             picked.append({
                 "id": r["id"],
                 "path": path,
@@ -557,7 +612,9 @@ def run_learn(dry_run: bool, now: datetime | None = None,
 
     sections_html = "".join(p["html"] for p in picked)
     full_html = HEADER_HTML.format(date=today_str, body=sections_html)
-    subject = _make_subject("learn")
+    
+    topics_picked = [p["topic"] for p in picked]
+    subject = _make_subject("learn", topics_picked)
 
     if send_fn:
         send_fn(subject, full_html, send_at=None)
@@ -582,7 +639,7 @@ def run_quiz(dry_run: bool, now: datetime | None = None,
         f"""SELECT {NOTE_SELECT_COLS}
            FROM notes
            WHERE last_sent IS NOT NULL
-           ORDER BY RANDOM()
+           ORDER BY ROW_NUMBER() OVER (PARTITION BY topic ORDER BY RANDOM()), RANDOM()
            LIMIT ?""",
         (NOTES_PER_QUIZ,)
     ).fetchall()
@@ -591,7 +648,7 @@ def run_quiz(dry_run: bool, now: datetime | None = None,
         rows = conn.execute(
             f"""SELECT {NOTE_SELECT_COLS}
                FROM notes
-               ORDER BY RANDOM()
+               ORDER BY ROW_NUMBER() OVER (PARTITION BY topic ORDER BY RANDOM()), RANDOM()
                LIMIT ?""",
             (NOTES_PER_QUIZ,)
         ).fetchall()
@@ -617,15 +674,18 @@ def run_quiz(dry_run: bool, now: datetime | None = None,
         return True
 
     quiz_sections = []
+    answers_sections = []
 
     for r in rows:
         raw = read_note_content(r["path"])
         if not raw:
             continue
         title = extract_title(raw) or r["title"]
-        qa_html = generate_quiz_qas(raw, title, r["topic"])
-        if not qa_html:
+        result = generate_quiz_qas(raw, title, r["topic"])
+        if not result:
             continue
+        
+        q_html, a_html = result
 
         section = f"""<div class="note-section">
   <div class="meta-row">
@@ -633,18 +693,38 @@ def run_quiz(dry_run: bool, now: datetime | None = None,
     <span class="tag-diff">{r["difficulty"] or "medium"}</span>
   </div>
   <h2>&#x1F9E9; {title}</h2>
-  {qa_html}
+  {q_html}
 </div>"""
         quiz_sections.append(section)
+        
+        # Add to answers footer
+        answers_sections.append(f"""<div style="margin-bottom:20px;">
+    <h3 style="margin-top:0; color:#4f46e5; font-size:16px;">{title}</h3>
+    {a_html}
+</div>""")
 
     if not quiz_sections:
         print("[quiz] quiz generation produced no sections (need GROQ_API_KEY?)")
         conn.close()
         return False
 
+    # Build the main body with questions, and then append the answers at the bottom
     body_html = "\n".join(quiz_sections)
+    
+    # Answers Footer
+    answers_footer = f"""
+    <div style="margin-top:40px; padding-top:40px; border-top:2px dashed #cbd5e1;">
+      <h2 style="text-align:center; color:#64748b; font-size:20px; margin-bottom:30px;">Answers</h2>
+      {"".join(answers_sections)}
+    </div>
+    """
+    
+    body_html += answers_footer
+
     full_html = HEADER_HTML.format(date=today_str, body=body_html)
-    subject = _make_subject("quiz")
+    
+    topics_picked = [p["topic"] for p in preview]
+    subject = _make_subject("quiz", topics_picked)
 
     if send_fn:
         send_fn(subject, full_html, send_at=None)
