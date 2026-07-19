@@ -6,6 +6,15 @@ Built on [FSRS](https://github.com/open-spaced-repetition/fsrs4anki) scheduling,
 
 **Portfolio:** Scholar-Loop owns *retain knowledge on a schedule* only. Not ops (Ozyman), not job boards (Disha), not creative synthesis (IdeaForge). See [docs/portfolio-product-boundaries.md](./docs/portfolio-product-boundaries.md).
 
+## Docs (start here)
+
+| Doc | Purpose |
+|-----|---------|
+| **[docs/STATUS.md](./docs/STATUS.md)** | Handoff — what works, gaps, resume |
+| [docs/setup.md](./docs/setup.md) | Env, dry-run, cron |
+| [docs/portfolio-product-boundaries.md](./docs/portfolio-product-boundaries.md) | Scholar-Loop vs siblings |
+| [AGENTS.md](./AGENTS.md) | Guidance for coding agents |
+
 ---
 
 ## How it works
