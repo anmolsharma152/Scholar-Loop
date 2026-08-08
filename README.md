@@ -2,6 +2,8 @@
 
 > Personal spaced-repetition agent that emails you FSRS-scheduled **Learn** (morning) and **Quiz** (evening) digests — DSA, System Design, ML/AI, papers, and more.
 
+**Engineered by [Anmol Sharma](https://linkedin.com/in/anmolsharma152)** | **[GitHub Profile](https://github.com/anmolsharma152)** | **[Live Portfolio](https://anmolsharma152.vercel.app)**
+
 Built on [FSRS](https://github.com/open-spaced-repetition/fsrs4anki) scheduling, proportional topic allocation, optional DSA curriculum order, Groq quizzes, Resend delivery, and GitHub Actions.
 
 **Portfolio:** Scholar-Loop owns *retain knowledge on a schedule* only. Not ops (Ozyman), not job boards (Disha), not creative synthesis (IdeaForge). See [docs/portfolio-product-boundaries.md](./docs/portfolio-product-boundaries.md).
