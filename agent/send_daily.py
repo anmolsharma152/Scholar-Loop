@@ -25,7 +25,7 @@ from premailer import transform
 
 KNOWLEDGE_DIR = Path(__file__).resolve().parent.parent / "knowledge"
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "user.db"
-LLM_MODEL = os.environ.get("LLM_MODEL", "llama-3.3-70b-versatile")
+LLM_MODEL = os.environ.get("LLM_MODEL", "qwen/qwen3.6-27b")
 
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
 RECIPIENT = os.environ.get("RECIPIENT")
