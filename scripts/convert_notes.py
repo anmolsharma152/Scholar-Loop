@@ -101,14 +101,19 @@ def convert_to_note(text: str, filename: str, topic_override: str | None = None)
     else:
         topic_hint = "Classify topic automatically from the list above."
 
-    client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=GROQ_API_KEY)
+    try:
+        from agent.llm_router import chat_completion_with_fallback
+    except ImportError:
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from agent.llm_router import chat_completion_with_fallback
 
     # Truncate to ~8000 tokens to stay within context
     truncated = text[:24000]
 
     try:
-        resp = client.chat.completions.create(
-            model=LLM_MODEL,
+        output, provider, model = chat_completion_with_fallback(
             messages=[
                 {"role": "system", "content": CONVERSION_PROMPT},
                 {"role": "user", "content": f"Source file: {filename}\n{topic_hint}\n\n{truncated}"},
@@ -116,9 +121,8 @@ def convert_to_note(text: str, filename: str, topic_override: str | None = None)
             temperature=0.3,
             max_tokens=2048,
         )
-        output = resp.choices[0].message.content.strip()
     except Exception as e:
-        print(f"  LLM error: {e}", file=sys.stderr)
+        print(f"  LLM error across all providers: {e}", file=sys.stderr)
         return None
 
     # Parse frontmatter from LLM output

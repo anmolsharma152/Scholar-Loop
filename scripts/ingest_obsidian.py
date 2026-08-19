@@ -38,8 +38,14 @@ def process_file(input_path: Path, target_topic: str):
     if len(content) > 20000:
         print(f"Warning: File is very large ({len(content)} chars). Consider splitting manually first or risk LLM truncation.")
 
-    client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=GROQ_API_KEY)
-    
+    try:
+        from agent.llm_router import chat_completion_with_fallback
+    except ImportError:
+        import sys
+        from pathlib import Path
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+        from agent.llm_router import chat_completion_with_fallback
+
     prompt = f"""You are an expert knowledge base structurer. Your job is to take a large, raw Markdown study guide and break it down into a list of smaller, self-contained, atomic "flashcard" notes.
 
 Each sub-note should be roughly 50-150 lines and focus on one specific concept.
@@ -75,20 +81,17 @@ Here is the raw document to process:
 {content[:25000]}
 """
 
-    print(f"Processing {input_path.name} via Groq ({LLM_MODEL})... This may take a minute.")
+    print(f"Processing {input_path.name} via LLM Fallback Router... This may take a minute.")
     
     try:
-        resp = client.chat.completions.create(
-            model=LLM_MODEL,
+        result_text, provider, model = chat_completion_with_fallback(
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
             response_format={"type": "json_object"},
         )
     except Exception as e:
-        print(f"Failed to call Groq: {e}", file=sys.stderr)
+        print(f"Failed to call LLM across all providers: {e}", file=sys.stderr)
         sys.exit(1)
-
-    result_text = resp.choices[0].message.content.strip()
     
     try:
         data = json.loads(result_text)

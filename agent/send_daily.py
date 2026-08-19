@@ -406,10 +406,16 @@ def format_note_section(row, content_html: str) -> str:
 
 
 def generate_quiz_qas(content: str, title: str, topic: str) -> tuple[str, str] | None:
-    if not GROQ_API_KEY:
+    try:
+        # Import fallback router (handles sys.path dynamically)
+        try:
+            from agent.llm_router import chat_completion_with_fallback
+        except ImportError:
+            from llm_router import chat_completion_with_fallback
+    except Exception as e:
+        print(f"  [warn] failed to import llm_router: {e}", file=sys.stderr)
         return None
-    import re as _re, time as _time
-    client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=GROQ_API_KEY)
+
     prompt = f"""You are a quiz generator. Given the following study note, generate EXACTLY 3 quiz questions that test understanding of the key concepts.
 
 Each question must follow this exact format:
@@ -435,64 +441,48 @@ Topic: {topic}
 Note content:
 {content[:4000]}
 """
-    for attempt in range(3):
-        try:
-            resp = client.chat.completions.create(
-                model=LLM_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=2048,
-            )
-            result = resp.choices[0].message.content.strip()
+    try:
+        result, provider, model = chat_completion_with_fallback(
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=2048,
+        )
 
-            # Strip reasoning/thinking blocks (e.g. <think>...</think> from Qwen/DeepSeek models)
-            result = _re.sub(r'<think>.*?</think>', '', result, flags=_re.DOTALL).strip()
+        # Parse Q1/A1 format — take only first 3 unique, non-placeholder pairs
+        questions_html = []
+        answers_html = []
+        seen_q: set = set()
+        seen_a: set = set()
 
-            # Parse Q1/A1 format — take only first 3 unique, non-placeholder pairs
-            questions_html = []
-            answers_html = []
-            seen_q: set = set()
-            seen_a: set = set()
-
-            for line in result.split("\n"):
-                line = line.strip()
-                if not line:
+        for line in result.split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            # Match "Q1. ..." style lines
+            if line.startswith("Q") and len(line) > 3 and line[1].isdigit() and line[2] == ".":
+                text = line[3:].strip()
+                if text in ("[question text]", "[text]", "") or text.startswith("["):
                     continue
-                # Match "Q1. ..." style lines
-                if line.startswith("Q") and len(line) > 3 and line[1].isdigit() and line[2] == ".":
-                    text = line[3:].strip()
-                    if text in ("[question text]", "[text]", "") or text.startswith("["):
-                        continue
-                    if text not in seen_q and len(questions_html) < 3:
-                        seen_q.add(text)
-                        questions_html.append(f'<div class="quiz-q"><strong>Q{len(questions_html)+1}.</strong> {text}</div>')
-                # Match "A1. ..." style lines
-                elif line.startswith("A") and len(line) > 3 and line[1].isdigit() and line[2] == ".":
-                    text = line[3:].strip()
-                    if text in ("[concise answer]", "[answer]", "...", "") or text.startswith("["):
-                        continue
-                    if text not in seen_a and len(answers_html) < 3:
-                        seen_a.add(text)
-                        answers_html.append(f'<div class="quiz-answer"><strong>Q{len(answers_html)+1}:</strong> {text}</div>')
-
-            if not questions_html or not answers_html:
-                return None
-
-            return "\n".join(questions_html), "\n".join(answers_html)
-
-        except Exception as e:
-            err_str = str(e)
-            # Retry on rate limit: parse the suggested wait time from Groq's error message
-            if "rate_limit_exceeded" in err_str or "429" in err_str:
-                wait_match = _re.search(r'try again in ([\d.]+)s', err_str)
-                wait = float(wait_match.group(1)) + 1.0 if wait_match else 15.0
-                if attempt < 2:
-                    print(f"  [warn] rate limit hit, retrying in {wait:.0f}s (attempt {attempt+1}/3)...", file=sys.stderr)
-                    _time.sleep(wait)
+                if text not in seen_q and len(questions_html) < 3:
+                    seen_q.add(text)
+                    questions_html.append(f'<div class="quiz-q"><strong>Q{len(questions_html)+1}.</strong> {text}</div>')
+            # Match "A1. ..." style lines
+            elif line.startswith("A") and len(line) > 3 and line[1].isdigit() and line[2] == ".":
+                text = line[3:].strip()
+                if text in ("[concise answer]", "[answer]", "...", "") or text.startswith("["):
                     continue
-            print(f"  [warn] quiz gen failed: {e}", file=sys.stderr)
+                if text not in seen_a and len(answers_html) < 3:
+                    seen_a.add(text)
+                    answers_html.append(f'<div class="quiz-answer"><strong>Q{len(answers_html)+1}:</strong> {text}</div>')
+
+        if not questions_html or not answers_html:
             return None
-    return None
+
+        return "\n".join(questions_html), "\n".join(answers_html)
+
+    except Exception as e:
+        print(f"  [warn] quiz gen failed across all providers: {e}", file=sys.stderr)
+        return None
 
 
 def _make_subject(mode: str, topics: list[str]) -> str:
