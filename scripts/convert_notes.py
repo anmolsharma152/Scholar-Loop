@@ -22,7 +22,7 @@ from openai import OpenAI
 
 KNOWLEDGE_DIR = Path(__file__).resolve().parent.parent / "knowledge"
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-LLM_MODEL = os.environ.get("LLM_MODEL", "qwen/qwen3.6-27b")
+LLM_MODEL = os.environ.get("LLM_MODEL", "groq/compound-mini")
 
 TOPIC_KEYWORDS = {
     "dsa": ["algorithm", "data structure", "tree", "graph", "sort", "search", "dynamic programming", "greedy", "stack", "queue", "hash", "linked list", "array", "recursion", "backtracking", "binary", "heap", "trie", "bfs", "dfs"],

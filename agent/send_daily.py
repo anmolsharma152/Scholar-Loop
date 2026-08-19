@@ -25,7 +25,7 @@ from premailer import transform
 
 KNOWLEDGE_DIR = Path(__file__).resolve().parent.parent / "knowledge"
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "user.db"
-LLM_MODEL = os.environ.get("LLM_MODEL", "qwen/qwen3.6-27b")
+LLM_MODEL = os.environ.get("LLM_MODEL", "groq/compound-mini")
 
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
 RECIPIENT = os.environ.get("RECIPIENT")
@@ -443,9 +443,15 @@ Note content:
         )
         result = resp.choices[0].message.content.strip()
         
-        # Parse the Q1/A1 format
+        # Strip reasoning/thinking blocks (e.g. <think>...</think> from Qwen/DeepSeek models)
+        import re as _re
+        result = _re.sub(r'<think>.*?</think>', '', result, flags=_re.DOTALL).strip()
+        
+        # Parse the Q1/A1 format — take only first 3 unique, non-placeholder Q and A lines
         questions_html = []
         answers_html = []
+        seen_q = set()
+        seen_a = set()
         
         lines = result.split("\n")
         q_count = 1
@@ -453,13 +459,24 @@ Note content:
             line = line.strip()
             if not line:
                 continue
-            if line.startswith("Q") and ". " in line[:5]:
-                questions_html.append(f'<div class="quiz-q">{line}</div>')
-            elif line.startswith("A") and ". " in line[:5]:
-                # Style the answer block like a newsletter answer
-                answer_text = line.split(". ", 1)[1] if ". " in line else line
-                answers_html.append(f'<div class="quiz-answer"><strong>Q{q_count}:</strong> {answer_text}</div>')
-                q_count += 1
+            # Match lines like "Q1. ...", "Q2. ..." etc.
+            if line.startswith("Q") and len(line) > 3 and line[1].isdigit() and line[2] == ".":
+                text = line[3:].strip()
+                # Skip template placeholders
+                if text in ("[question text]", "[text]", "") or text.startswith("["):
+                    continue
+                if text not in seen_q and len(questions_html) < 3:
+                    seen_q.add(text)
+                    questions_html.append(f'<div class="quiz-q"><strong>Q{len(questions_html)+1}.</strong> {text}</div>')
+            # Match lines like "A1. ...", "A2. ..." etc.
+            elif line.startswith("A") and len(line) > 3 and line[1].isdigit() and line[2] == ".":
+                text = line[3:].strip()
+                # Skip template placeholders
+                if text in ("[concise answer]", "[answer]", "...","") or text.startswith("["):
+                    continue
+                if text not in seen_a and len(answers_html) < 3:
+                    seen_a.add(text)
+                    answers_html.append(f'<div class="quiz-answer"><strong>Q{len(answers_html)+1}:</strong> {text}</div>')
                 
         if not questions_html or not answers_html:
             return None

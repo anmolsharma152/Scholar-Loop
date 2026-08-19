@@ -15,7 +15,7 @@ from pathlib import Path
 from openai import OpenAI
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-LLM_MODEL = os.environ.get("LLM_MODEL", "qwen/qwen3.6-27b")
+LLM_MODEL = os.environ.get("LLM_MODEL", "groq/compound-mini")
 KNOWLEDGE_DIR = Path(__file__).resolve().parent.parent / "knowledge"
 
 def process_file(input_path: Path, target_topic: str):
