@@ -16,14 +16,14 @@ from openai import OpenAI
 def get_provider_chain() -> list[dict]:
     chain = []
 
-    # 1. Primary: Groq (Ultra-fast, generous free tier)
+    # 1. Primary: Groq (Ultra-fast, strict instruction following — no thinking tokens)
     groq_key = os.environ.get("GROQ_API_KEY")
     if groq_key:
         preferred = os.environ.get("LLM_MODEL")
         groq_models = [
             "llama-3.3-70b-versatile",
             "llama-3.1-8b-instant",
-            "qwen/qwen3.6-27b",
+            "gemma2-9b-it",
             "groq/compound-mini",
         ]
         if preferred and preferred in groq_models:
@@ -39,7 +39,7 @@ def get_provider_chain() -> list[dict]:
             "models": groq_models,
         })
 
-    # 2. Secondary: Google Gemini (High reasoning, multi-turn reliability)
+    # 2. Secondary: Google Gemini (High reasoning, deterministic formatting)
     gemini_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if gemini_key:
         chain.append({
@@ -53,7 +53,7 @@ def get_provider_chain() -> list[dict]:
             ],
         })
 
-    # 3. Tertiary: OpenRouter (Universal model hub fallback)
+    # 3. Tertiary: OpenRouter (Universal instruct model fallback)
     openrouter_key = os.environ.get("OPENROUTER_API_KEY")
     if openrouter_key:
         chain.append({
@@ -62,7 +62,7 @@ def get_provider_chain() -> list[dict]:
             "api_key": openrouter_key,
             "models": [
                 "meta-llama/llama-3.3-70b-instruct",
-                "qwen/qwen-2.5-72b-instruct",
+                "meta-llama/llama-3.1-8b-instruct",
                 "google/gemini-2.0-flash-001",
             ],
         })
