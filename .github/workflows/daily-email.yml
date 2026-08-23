@@ -2,9 +2,18 @@ name: daily-email
 
 on:
   schedule:
-    - cron: '13 3 * * *'   # 03:13 UTC = 08:43 IST (Learn)
-    - cron: '13 10 * * *'  # 10:13 UTC = 15:43 IST (Quiz)
+    - cron: '47 1 * * *'   # 01:47 UTC = 07:17 IST (Learn target 07:30-08:00 AM)
+    - cron: '47 9 * * *'   # 09:47 UTC = 15:17 IST (Quiz target 03:30-04:00 PM)
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Email mode (learn or quiz)'
+        required: false
+        default: 'learn'
+        type: choice
+        options:
+          - learn
+          - quiz
 
 permissions:
   contents: write
@@ -20,10 +29,11 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -r requirements.txt
-      - name: Send learn or quiz based on time
+      - name: Send learn or quiz based on trigger
         run: |
-          HOUR=$(date -u +%H)
-          if [ "$HOUR" -lt "8" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            python agent/send_daily.py --mode "${{ inputs.mode || 'learn' }}"
+          elif [ "${{ github.event.schedule }}" = "47 1 * * *" ]; then
             python agent/send_daily.py --mode learn
           else
             python agent/send_daily.py --mode quiz

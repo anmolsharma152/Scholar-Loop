@@ -473,7 +473,7 @@ Note content:
                     continue
                 if text not in seen_a and len(answers_html) < 3:
                     seen_a.add(text)
-                    answers_html.append(f'<div class="quiz-answer"><strong>Q{len(answers_html)+1}:</strong> {text}</div>')
+                    answers_html.append(f'<div class="quiz-answer"><strong>A{len(answers_html)+1}:</strong> {text}</div>')
 
         if not questions_html or not answers_html:
             return None
@@ -502,8 +502,10 @@ def _make_subject(mode: str, topics: list[str]) -> str:
         else: display_topics.append(t.title())
         
     t_str = ""
-    if len(display_topics) > 1:
+    if len(display_topics) > 2:
         t_str = ", ".join(display_topics[:-1]) + ", and " + display_topics[-1]
+    elif len(display_topics) == 2:
+        t_str = f"{display_topics[0]} and {display_topics[1]}"
     elif len(display_topics) == 1:
         t_str = display_topics[0]
         
@@ -690,6 +692,7 @@ def run_quiz(dry_run: bool, now: datetime | None = None,
 
     quiz_sections = []
     answers_sections = []
+    delivered_topics = []
 
     for r in rows:
         raw = read_note_content(r["path"])
@@ -701,6 +704,7 @@ def run_quiz(dry_run: bool, now: datetime | None = None,
             continue
         
         q_html, a_html = result
+        delivered_topics.append(r["topic"])
 
         section = f"""<div class="note-section">
   <div class="meta-row">
@@ -738,8 +742,7 @@ def run_quiz(dry_run: bool, now: datetime | None = None,
 
     full_html = HEADER_HTML.format(date=today_str, body=body_html)
     
-    topics_picked = [p["topic"] for p in preview]
-    subject = _make_subject("quiz", topics_picked)
+    subject = _make_subject("quiz", delivered_topics)
 
     if send_fn:
         send_fn(subject, full_html, send_at=None)
