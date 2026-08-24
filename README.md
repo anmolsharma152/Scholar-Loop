@@ -42,20 +42,22 @@ Built on [FSRS](https://github.com/open-spaced-repetition/fsrs4anki) scheduling,
 │                                              │
 │  LEARN (morning)                             │
 │  · Proportional topic slots (DSA 35%, …)     │
-│  · Due notes; sequence gate for new curriculum│
+│  · Due notes first (NULLS LAST); sequence gate│
+│  · Dynamic word cap (~1500w) for 2–3 notes   │
 │  · Markdown → HTML → Resend (immediate)      │
 │  · Passive FSRS Good → multi-day next due     │
 │                                              │
 │  QUIZ (evening)                              │
-│  · Previously-sent notes (oldest first)      │
-│  · Groq: 3 Q&A + highlight-to-reveal answers │
+│  · Partition-diverse previously-sent notes   │
+│  · Groq: 3 Q&As (Q1–Q3) + answers (A1–A3)    │
+│  · Newsletter bottom solution block          │
 │  · Resend immediate (separate cron)          │
 └──────────────────┬───────────────────────────┘
                    │
 ┌──────────────────▼───────────────────────────┐
 │  GitHub Actions dual cron                    │
-│  03:13 UTC → --mode learn                    │
-│  10:13 UTC → --mode quiz                     │
+│  01:47 UTC (07:17 IST) → --mode learn        │
+│  09:47 UTC (15:17 IST) → --mode quiz         │
 │  Commits data/user.db with [skip ci]         │
 └──────────────────────────────────────────────┘
 ```
@@ -115,11 +117,14 @@ python agent/send_daily.py --mode quiz
 python agent/send_daily.py --mode both
 ```
 
-### Ingest PDFs / DOCX
+### Ingest PDFs / Obsidian Notes
 
 ```bash
+# Convert research PDFs/DOCX into study notes:
 python scripts/convert_notes.py ~/Downloads/some-paper.pdf
-python scripts/convert_notes.py --source ~/Downloads --topic papers --dry-run
+
+# Ingest and chunk large Obsidian guides into atomic notes:
+python scripts/ingest_obsidian.py knowledge/obsidian/some-guide.md ml-ai
 ```
 
 ---
@@ -157,30 +162,30 @@ Markdown with code blocks, tables, and LaTeX-friendly text.
 | Papers | 8% | |
 | Agentic AI | 7% | |
 
-Cap: up to **5** notes per Learn email (`NOTES_PER_LEARN` / `MAX_NOTES_TOTAL`).
+Cap: Dynamic length limit (~1500 words, minimum 2 notes) to keep daily reading focused without overwhelming walls of text.
 
 **Learn rules**
 
-1. Allocate slots by weight among topics that have due notes (`due IS NULL` or `due <= now`).
-2. **Sequence gate:** for topics with `sequence` on unsent notes (DSA), only the **minimum unsent sequence** can be introduced. Higher sequences stay locked until earlier ones are sent.
-3. While a curriculum step is open, that new note is preferred over replaying older reviews so the syllabus advances.
-4. After send: passive FSRS `Rating.Good` with empty learning steps → multi-day `due` (not “due again today”). Grade is logged to `reviews`.
+1. Allocate slots by weight among topics that have due notes.
+2. **Prioritize reviews:** Due reviews are selected first (`due ASC NULLS LAST`), filling the remaining word budget with new curriculum notes.
+3. **Sequence gate:** For topics with `sequence` on unsent notes (DSA), only the **minimum unsent sequence** can be introduced. Higher sequences stay locked until earlier ones are sent.
+4. After send: Passive FSRS `Rating.Good` with empty learning steps → multi-day `due` (not “due again today”). Grade is logged to `reviews`.
 
 **Quiz rules**
 
-- Up to 4 notes with `last_sent` set (oldest first); random fallback if none.
-- Groq builds 3 Q&As; answers use white-on-white spoilers + `premailer` for Gmail.
+- Selects from notes with `last_sent` set, partitioned by topic for guaranteed multi-topic diversity (`ROW_NUMBER() OVER PARTITION`).
+- Groq generates 3 Q&As (`Q1`, `Q2`, `Q3`); answers (`A1:`, `A2:`, `A3:`) are cleanly segregated at the bottom of the email in a newsletter solution block for true active recall.
 - Does **not** update FSRS.
 
 ### Learn vs Quiz
 
 | | Learn | Quiz |
 |---|---|---|
-| **When** | 03:13 UTC (08:43 IST) | 10:13 UTC (15:43 IST) |
-| **Content** | Full note HTML | 3 Q&A + spoiler answers |
-| **Selection** | Due + weights + sequence | Previously sent |
+| **When** | 01:47 UTC (07:17 IST → arrives ~07:45–08:00 AM) | 09:47 UTC (15:17 IST → arrives ~03:45–04:00 PM) |
+| **Content** | Full note HTML (capped ~1500w) | 3 Q&A (`Q1–Q3`) + bottom answers (`A1–A3`) |
+| **Selection** | Due reviews first (`NULLS LAST`) + weights + sequence | Cumulative seen notes with topic diversity |
 | **FSRS** | Passive Good | No update |
-| **LLM** | No | Groq (optional) |
+| **LLM** | No | Groq (`groq/compound-mini`) |
 
 ---
 
@@ -190,10 +195,10 @@ Cap: up to **5** notes per Learn email (`NOTES_PER_LEARN` / `MAX_NOTES_TOTAL`).
 
 Workflow: [`.github/workflows/daily-email.yml`](.github/workflows/daily-email.yml)
 
-| Cron (UTC) | IST | Command |
-|------------|-----|---------|
-| `13 3 * * *` | 08:43 | `python agent/send_daily.py --mode learn` |
-| `13 10 * * *` | 15:43 | `python agent/send_daily.py --mode quiz` |
+| Cron (UTC) | IST (Scheduled) | Expected Delivery | Command |
+|------------|-----------------|-------------------|---------|
+| `47 1 * * *` | 07:17 | ~07:45–08:00 AM | `python agent/send_daily.py --mode learn` |
+| `47 9 * * *` | 15:17 | ~03:45–04:00 PM | `python agent/send_daily.py --mode quiz` |
 
 **Secrets** (Settings → Secrets and variables → Actions):
 
@@ -205,7 +210,7 @@ Workflow: [`.github/workflows/daily-email.yml`](.github/workflows/daily-email.ym
 
 After each successful run the bot commits `data/user.db` with message `chore: update review metadata [skip ci]`.
 
-Manual run: **Actions → daily-email → Run workflow**.
+Manual run: **Actions → daily-email → Run workflow** (supports choosing `learn` or `quiz` mode).
 
 ---
 
@@ -215,8 +220,8 @@ Manual run: **Actions → daily-email → Run workflow**.
 |----------|----------|---------|---------|
 | `RESEND_API_KEY` | Yes | — | Email delivery |
 | `RECIPIENT` | Yes | — | Destination address |
-| `GROQ_API_KEY` | No | — | Quiz (+ convert_notes) |
-| `LLM_MODEL` | No | `llama-3.3-70b-versatile` | Groq model id |
+| `GROQ_API_KEY` | No | — | Quiz (+ convert_notes / ingest) |
+| `LLM_MODEL` | No | `groq/compound-mini` | Groq model id |
 
 ---
 
@@ -231,9 +236,10 @@ python -m pytest tests/ -q -m "not slow"
 
 | Path | Role |
 |------|------|
-| `agent/send_daily.py` | Learn/Quiz selection, FSRS, email |
+| `agent/send_daily.py` | Learn/Quiz selection, FSRS, email rendering |
 | `scripts/init_db.py` | Schema + migrate notes into SQLite |
 | `scripts/convert_notes.py` | PDF/DOCX → study notes via Groq |
+| `scripts/ingest_obsidian.py` | Chunk large Obsidian guides into study notes via Groq |
 | `tests/` | Unit tests (slots, FSRS, learn/quiz, convert) |
 | `pyproject.toml` | pytest / ruff / coverage config |
 

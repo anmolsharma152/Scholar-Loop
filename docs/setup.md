@@ -57,6 +57,7 @@ python scripts/init_db.py
 | `python agent/send_daily.py --mode quiz` | Send quiz |
 | `python agent/send_daily.py --mode both` | Both modes |
 | `python scripts/convert_notes.py <file>` | Ingest PDF/DOCX → knowledge |
+| `python scripts/ingest_obsidian.py <file> <topic>` | Chunk Obsidian guides into knowledge notes |
 
 ---
 

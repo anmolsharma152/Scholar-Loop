@@ -18,12 +18,12 @@ Setup: [setup.md](./setup.md). Agents: [../AGENTS.md](../AGENTS.md).
 | Surface | Status | Notes |
 |---------|--------|-------|
 | Knowledge base | ✅ | Multi-topic markdown under `knowledge/` (DSA sequence curriculum, papers, ML, …) |
-| FSRS state | ✅ | SQLite `data/user.db` (stability, due, reviews) |
-| Learn mode | ✅ | Proportional topic slots; sequence gate for DSA |
-| Quiz mode | ✅ | Groq 3 Q&A + highlight-to-reveal answers |
-| Email delivery | ✅ | Resend immediate send |
-| GitHub Actions dual cron | ✅ | Learn + Quiz UTC schedules; commits DB with `[skip ci]` |
-| PDF/DOCX ingest helpers | ✅ | `scripts/convert_notes.py` |
+| FSRS state | ✅ | SQLite `data/user.db` (stability, due, reviews); reviews prioritized first (`NULLS LAST`) |
+| Learn mode | ✅ | Proportional topic slots; dynamic word cap (~1500w); sequence gate for DSA |
+| Quiz mode | ✅ | Groq `compound-mini` 3 Q&A (`Q1-Q3`) + bottom newsletter answers (`A1-A3`) |
+| Email delivery | ✅ | Resend immediate send; dynamic clean subject lines with 2-topic grammar fix |
+| GitHub Actions dual cron | ✅ | Delay-proof trigger matching; scheduled for 07:17 IST & 15:17 IST; commits DB with `[skip ci]` |
+| PDF/DOCX/Obsidian ingest | ✅ | `scripts/convert_notes.py` & `scripts/ingest_obsidian.py` |
 
 ---
 
