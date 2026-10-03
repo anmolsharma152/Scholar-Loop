@@ -18,11 +18,9 @@ from pathlib import Path
 import frontmatter
 import pdfplumber
 from docx import Document
-from openai import OpenAI
 
 KNOWLEDGE_DIR = Path(__file__).resolve().parent.parent / "knowledge"
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-LLM_MODEL = os.environ.get("LLM_MODEL", "groq/compound-mini")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 
 TOPIC_KEYWORDS = {
     "dsa": ["algorithm", "data structure", "tree", "graph", "sort", "search", "dynamic programming", "greedy", "stack", "queue", "hash", "linked list", "array", "recursion", "backtracking", "binary", "heap", "trie", "bfs", "dfs"],
@@ -92,8 +90,8 @@ def classify_topic(text: str, filename: str) -> str:
 
 
 def convert_to_note(text: str, filename: str, topic_override: str | None = None) -> tuple[frontmatter.Post, str] | None:
-    if not GROQ_API_KEY:
-        print("error: GROQ_API_KEY not set", file=sys.stderr)
+    if not GEMINI_API_KEY:
+        print("error: GEMINI_API_KEY not set", file=sys.stderr)
         sys.exit(1)
 
     if topic_override:
@@ -122,7 +120,7 @@ def convert_to_note(text: str, filename: str, topic_override: str | None = None)
             max_tokens=2048,
         )
     except Exception as e:
-        print(f"  LLM error across all providers: {e}", file=sys.stderr)
+        print(f"  LLM error: {e}", file=sys.stderr)
         return None
 
     # Parse frontmatter from LLM output

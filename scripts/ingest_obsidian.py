@@ -12,15 +12,13 @@ import os
 import sys
 import json
 from pathlib import Path
-from openai import OpenAI
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-LLM_MODEL = os.environ.get("LLM_MODEL", "groq/compound-mini")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 KNOWLEDGE_DIR = Path(__file__).resolve().parent.parent / "knowledge"
 
 def process_file(input_path: Path, target_topic: str):
-    if not GROQ_API_KEY:
-        print("Error: GROQ_API_KEY must be set.", file=sys.stderr)
+    if not GEMINI_API_KEY:
+        print("Error: GEMINI_API_KEY must be set.", file=sys.stderr)
         sys.exit(1)
 
     if not input_path.exists():
@@ -90,7 +88,7 @@ Here is the raw document to process:
             response_format={"type": "json_object"},
         )
     except Exception as e:
-        print(f"Failed to call LLM across all providers: {e}", file=sys.stderr)
+        print(f"Failed to call Gemini: {e}", file=sys.stderr)
         sys.exit(1)
     
     try:

@@ -2,19 +2,19 @@
 
 | Field | Value |
 |-------|--------|
-| **As of** | 2026-07-19 |
-| **Stack** | Python 3.12+ · FSRS · Groq · Resend · GitHub Actions |
+| **As of** | 2026-10-03 |
+| **Stack** | Python 3.12 · FSRS · Gemini Flash · Resend · GitHub Actions |
 
-Handoff: [STATUS.md](./STATUS.md).
+Current state: [../PROJECT_STATE.md](../PROJECT_STATE.md).
 
 ---
 
 ## Prerequisites
 
-- Python 3.12+  
-- [Resend](https://resend.com) API key  
-- [Groq](https://console.groq.com) API key (quiz generation)  
-- GitHub repo secrets for Actions (if using cron)
+- Python 3.12 (pinned in `.python-version`)
+- [Resend](https://resend.com) API key
+- [Gemini](https://aistudio.google.com/app/apikey) API key (quiz generation and note ingestion)
+- GitHub repo secrets for Actions
 
 ---
 
@@ -25,8 +25,9 @@ Copy `.env.example` → `.env` (never commit):
 | Variable | Purpose |
 |----------|---------|
 | `RESEND_API_KEY` | Email delivery |
-| `RECIPIENT` / from address vars | Where digests go |
-| `GROQ_API_KEY` | Quiz / enhancement LLM |
+| `RECIPIENT` | Where the digest goes |
+| `GEMINI_API_KEY` | Quiz, `convert_notes.py`, `ingest_obsidian.py` |
+| `LLM_MODEL` | Optional override (default `gemini-flash-latest`) |
 
 Load:
 
@@ -41,7 +42,7 @@ set -a && source .env && set +a
 ```bash
 cd ~/Projects/Scholar-Loop
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
 python scripts/init_db.py
 ```
 
@@ -51,27 +52,28 @@ python scripts/init_db.py
 
 | Command | Purpose |
 |---------|---------|
-| `python agent/send_daily.py --dry-run --mode learn` | Preview learn picks (no email) |
-| `python agent/send_daily.py --dry-run --mode quiz` | Preview quiz |
-| `python agent/send_daily.py --mode learn` | Send learn |
-| `python agent/send_daily.py --mode quiz` | Send quiz |
-| `python agent/send_daily.py --mode both` | Both modes |
+| `python agent/send_daily.py --dry-run` | Show the day's Learn + Quiz picks (no email, no LLM) |
+| `python agent/send_daily.py --preview out.html` | Build the full email with the Gemini quiz; write HTML; no send |
+| `python agent/send_daily.py` | Send the combined daily email |
+| `python agent/send_daily.py --mode learn` / `--mode quiz` | Send one part alone (debugging) |
 | `python scripts/convert_notes.py <file>` | Ingest PDF/DOCX → knowledge |
 | `python scripts/ingest_obsidian.py <file> <topic>` | Chunk Obsidian guides into knowledge notes |
+| `python -m pytest tests/ -q` | Run tests |
 
 ---
 
 ## Production cron
 
-GitHub Actions workflow (dual schedule → learn / quiz).  
-DB commit uses `[skip ci]` to avoid loops.  
-Secrets: set Resend + Groq in repository secrets.
+- `daily-email.yml`: `47 1 * * 1-5` → 07:17 IST, Monday–Friday, `--mode daily`.
+- `tests.yml`: runs pytest on code pushes to `main`.
+- The DB commit uses `[skip ci]` to avoid loops.
+- Secrets: `RESEND_API_KEY`, `RECIPIENT`, `GEMINI_API_KEY`.
 
 ---
 
 ## Note format
 
-Scheduling state lives in **`data/user.db`**, not frontmatter. Frontmatter holds topic metadata and optional `sequence` for curriculum.
+Scheduling state lives in **`data/user.db`**, not frontmatter. Frontmatter holds topic metadata and an optional `sequence` for curriculum order.
 
 ```yaml
 ---
@@ -87,6 +89,6 @@ sequence: 4
 
 ## Hygiene
 
-- Do not commit `.env`  
-- Treat `data/user.db` as state (Actions may rewrite on main)  
-- Keep `knowledge/archive/` and `knowledge/obsidian/` excluded from agent selection
+- Do not commit `.env`
+- Treat `data/user.db` as state (Actions rewrites it on `main`)
+- Keep `knowledge/archive/` and `knowledge/obsidian/` out of agent selection until ingested

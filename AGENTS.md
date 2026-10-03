@@ -15,7 +15,7 @@ Scholar-Loop is a **spaced-repetition learning companion**: FSRS-scheduled Learn
 | Creative diverge–evaluate idea OS | IdeaForge |
 
 Portfolio: [docs/portfolio-product-boundaries.md](./docs/portfolio-product-boundaries.md).  
-Resume: [docs/STATUS.md](./docs/STATUS.md).
+Resume: [PROJECT_STATE.md](./PROJECT_STATE.md) and [SESSION_HANDOFF.md](./SESSION_HANDOFF.md).
 
 ## Important paths
 

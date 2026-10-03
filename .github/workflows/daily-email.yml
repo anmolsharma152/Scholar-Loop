@@ -2,46 +2,47 @@ name: daily-email
 
 on:
   schedule:
-    - cron: '47 1 * * *'   # 01:47 UTC = 07:17 IST (Learn target 07:30-08:00 AM)
-    - cron: '47 9 * * *'   # 09:47 UTC = 15:17 IST (Quiz target 03:30-04:00 PM)
+    # 01:47 UTC = 07:17 IST, Monday-Friday only. One combined Learn + Quiz email.
+    # GitHub's scheduler often runs late; target inbox time is ~07:45-08:15 IST.
+    - cron: '47 1 * * 1-5'
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Email mode (learn or quiz)'
+        description: 'Email mode'
         required: false
-        default: 'learn'
+        default: 'daily'
         type: choice
         options:
+          - daily
           - learn
           - quiz
 
 permissions:
   contents: write
 
+concurrency:
+  group: daily-email
+  cancel-in-progress: false
+
 jobs:
   send:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Restore user.db from git
         run: git show HEAD:data/user.db > data/user.db 2>/dev/null || echo "no prior db, will create fresh"
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
+          cache: pip
       - run: pip install -r requirements.txt
-      - name: Send learn or quiz based on trigger
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            python agent/send_daily.py --mode "${{ inputs.mode || 'learn' }}"
-          elif [ "${{ github.event.schedule }}" = "47 1 * * *" ]; then
-            python agent/send_daily.py --mode learn
-          else
-            python agent/send_daily.py --mode quiz
-          fi
+      - name: Send Scholar-Loop email
+        run: python agent/send_daily.py --mode "${{ inputs.mode || 'daily' }}"
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           RECIPIENT: ${{ secrets.RECIPIENT }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       - name: Commit metadata updates
         run: |
           git config user.name "scholar-loop-bot"

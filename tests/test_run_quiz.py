@@ -116,7 +116,7 @@ class TestRunQuiz:
         assert result is False
 
     def test_sends_immediate_email(self, tmp_knowledge_dir):
-        """Quiz sends immediately (dual cron); no Resend scheduled_at."""
+        """Quiz sends immediately; no Resend scheduled_at."""
         db_path = Path(tempfile.mktemp(suffix=".db"))
         import agent.send_daily as mod
         mod.DB_PATH = db_path
@@ -144,12 +144,8 @@ class TestRunQuiz:
             sent.append({"subj": subj, "html": html, "send_at": send_at})
 
         fake_qa = (
-            'Q1. What is binary search?\n'
-            '<div class="quiz-answer"><span class="answer-label">Answer:</span> O(log n)</div>\n'
-            'Q2. Requirement?\n'
-            '<div class="quiz-answer"><span class="answer-label">Answer:</span> sorted array</div>\n'
-            'Q3. Complexity?\n'
-            '<div class="quiz-answer"><span class="answer-label">Answer:</span> logarithmic</div>'
+            '<div class="quiz-q"><strong>Q1.</strong> What is binary search?</div>',
+            '<div class="quiz-answer"><strong>A1:</strong> O(log n) search on sorted data</div>',
         )
 
         with patch("agent.send_daily.generate_quiz_qas", return_value=fake_qa):
@@ -157,6 +153,6 @@ class TestRunQuiz:
 
         assert result is True
         assert len(sent) == 1
-        assert sent[0]["send_at"] is None  # dual-cron: send now
+        assert sent[0]["send_at"] is None
         assert "\U0001f9e9 Scholar-Loop Quiz" in sent[0]["subj"]
         assert "quiz-answer" in sent[0]["html"]

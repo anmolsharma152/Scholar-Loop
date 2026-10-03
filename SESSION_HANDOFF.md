@@ -2,55 +2,58 @@
 
 ## Current Work Session
 
-- Resumed session on 2026-09-03.
-- Synced state with user: Confirmed that **Scholar-Loop is still running on GitHub CI/CD native automation** (`.github/workflows/daily-email.yml`) and has not yet been migrated to external services.
-- Created root-level `PROJECT_STATE.md` and `SESSION_HANDOFF.md` to align Scholar-Loop with standard portfolio practices across AlgoDeck, CodexEngine, and Nimbus.
-- Last code/docs commit on `main`: `f7914a8` (authored `ARCHITECTURE.md` and `TASKS.md`).
+- Resumed session on 2026-10-03.
+- **Root Cause & Fix for 11-Day Quiz Outage:** Investigated failed evening runs (broken since Sept 22 due to Groq decommissioning models). Completely replaced Groq with Google Gemini Flash (`gemini-flash-latest` / `gemini-3.8-flash`).
+- **Inbox Fatigue & Architecture Shift:** Addressed user disengagement from 2 daily emails (14/week). Transitioned to a single combined **Learn + Quiz morning digest** sent Monday through Friday only (`cron: '47 1 * * 1-5'`). Weekends are 100% silent.
+- **Repository Audit & Cleanup:**
+  - Removed all dead Groq, OpenRouter, Llama, Qwen, and Compound references across `agent/llm_router.py`, `agent/send_daily.py`, `scripts/convert_notes.py`, `scripts/ingest_obsidian.py`, and documentation.
+  - Trimmed `requirements.txt` (removed unused `resend` and deprecated `google-generativeai`). Created `requirements-dev.txt` for conversion tools and pytest.
+  - Fixed 4 broken tests in `tests/test_make_subject.py` and `tests/test_run_quiz.py`. Added comprehensive `tests/test_run_daily.py` (95/95 tests passing).
+  - Added `.github/workflows/tests.yml` to run pytest automatically on pushes to `main`.
+  - Upgraded GitHub Actions to Node 24 (`actions/checkout@v5`, `actions/setup-python@v6`).
+  - Pruned empty folders (`tools/`, `templates/`, `ingestion/`), deleted untracked `uv.lock`, and deleted stale legacy markdown in `docs/`.
+  - Configured `GEMINI_API_KEY` secret in GitHub repository via `gh secret set` and purged `GROQ_API_KEY`.
 
-## What Was Completed (Prior Sessions)
+## What Was Completed
 
-- Solved the broken quiz email issue caused by Qwen's `<think>` tags by migrating to `groq/compound-mini` and hardening the line parser with 4 defensive layers.
-- Resolved Groq 429 rate limits by extracting cooldown seconds from the error and adding an automatic 3-attempt backoff retry loop.
-- Implemented the newsletter-style active recall format: questions at top (`Q1–Q3`), answers segregated in a footer block (`A1–A3`).
-- Refined subject line logic: dynamically syncs with delivered topics and fixes 2-topic grammar (`"DSA and ML"` with no awkward Oxford comma).
-- Prioritized due reviews first via `due ASC NULLS LAST` and enforced a dynamic ~1,500-word budget.
-- Comprehensive updates to `README.md`, `docs/STATUS.md`, `docs/setup.md`, and live GitHub repository description and topics.
-- Authored `ARCHITECTURE.md` and `TASKS.md` laying out full system mechanics, scheduling reliability trade-offs, and roadmap phases.
-- Removed SSH passphrase on `omarchy` user for frictionless passwordless pushes.
+- `agent/llm_router.py` rewritten to use Gemini OpenAI-compatible endpoint with `gemini-flash-latest`, low reasoning effort, and rate-limit backoff.
+- `agent/send_daily.py` updated with `run_daily`:
+  - Part 1: Learn notes (~1,500w cap, FSRS reviews first).
+  - Part 2: Active recall quiz on past notes (3–6 questions, weakest memory first; skips today's Learn notes).
+  - Part 3: Segregated answers footer.
+  - Soft-fail resilience: if Gemini ever fails, Learn notes still send with an in-email notice and GitHub warning annotation.
+  - Gmail clipping guard (< 102 KB).
+  - CLI updated: `--mode daily` is default; added `--preview <file>`.
+- Full live preview verified: 27.8 KB HTML generated without mutating database or FSRS state.
+- Documentation refreshed: `README.md`, `docs/setup.md`, `AGENTS.md`, `PROJECT_STATE.md`, `SESSION_HANDOFF.md`, `.env.example`.
 
-## What Is In Progress
+## Files Touched This Session
 
-- **Scheduling Clock Decision:** Determining the right time to transition from native GitHub Actions crons to an external scheduler (AWS EventBridge Path A vs cron-job.org via `repository_dispatch`). Currently operating on native GitHub Actions.
-- **Knowledge Base Expansion:** Preparing to chunk and ingest Obsidian study guides (`knowledge/obsidian/ai-system-design-guide/`).
-
-## Files Touched Recently
-
-- `PROJECT_STATE.md` (created this session)
-- `SESSION_HANDOFF.md` (created this session)
-- `ARCHITECTURE.md` & `TASKS.md` (committed in `f7914a8`)
-- `agent/send_daily.py` (QA labels, retry logic, subject grammar)
-- `.github/workflows/daily-email.yml` (cron schedule adjustments)
-- `README.md`, `docs/STATUS.md`, `docs/setup.md`
+- `agent/llm_router.py` (rewritten for Gemini)
+- `agent/send_daily.py` (combined daily digest, quiz rotation, CLI)
+- `scripts/convert_notes.py` (Gemini key check)
+- `scripts/ingest_obsidian.py` (Gemini key check)
+- `.github/workflows/daily-email.yml` (weekday cron, Gemini secret)
+- `.github/workflows/tests.yml` (new CI workflow for tests)
+- `requirements.txt` & `requirements-dev.txt` (cleaned and split)
+- `.python-version` (pinned 3.12)
+- `tests/test_make_subject.py` & `tests/test_run_quiz.py` (fixed)
+- `tests/test_run_daily.py` (new tests)
+- `README.md`, `docs/setup.md`, `AGENTS.md`, `PROJECT_STATE.md`, `SESSION_HANDOFF.md`, `.env.example`
+- Deleted stale docs in `docs/`
 
 ## Important Decisions
 
-- **GitHub CI/CD Remains Active:** We have *not* switched to external services yet. The native dual cron in `.github/workflows/daily-email.yml` remains the active trigger for daily Learn (07:17 IST) and Quiz (15:17 IST) emails.
-- **State decoupled:** FSRS memory state remains strictly in SQLite (`data/user.db`), never frontmatter.
-- **Curriculum Order:** DSA maintains strict sequential ordering (`sequence ASC`).
-- **Product Boundaries:** Strict boundary enforcement against absorbing Ozyman (ops), Disha (jobs), or IdeaForge (ideation) features.
+- **Single Weekday Email:** 5 emails/week (Mon–Fri ~07:45–08:15 IST). Cuts inbox volume in half while preserving FSRS spaced repetition integrity. Notes due over the weekend wait until Monday.
+- **Gemini Flash Latest Alias:** Uses `gemini-flash-latest` so future model version transitions by Google are automatic.
+- **Fail-Safe Delivery:** LLM outages never block daily reading notes.
+- **Zero CLI Toggle Complexity:** Kept configuration in code/workflow without adding unneeded toggle scripts.
 
 ## Current Blockers / Constraints
 
-- Native GitHub Actions crons occasionally experience queue backlog delays during peak runner load.
-- Local `uv.lock` remains untracked.
+- None. All 95 tests pass, live Gemini generation verified, secrets set.
 
 ## Immediate Next Action
 
-1. Await user direction on the next operational priority:
-   - **Option A:** Implement `repository_dispatch` to decouple the scheduling clock (AWS EventBridge or cron-job.org).
-   - **Option B:** Ingest raw Obsidian guides into active knowledge domains using `scripts/ingest_obsidian.py`.
-   - **Option C:** Review / verify recent daily digest execution logs.
-
-## First Prompt For The Next Agent
-
-"Review `PROJECT_STATE.md` and `SESSION_HANDOFF.md`. We are operating on GitHub Actions native CI/CD for daily emails. Proceed with the user's selected task (decoupled scheduler setup, Obsidian ingestion, or feature enhancement)."
+1. Commit and push the changes to `main`.
+2. Dispatch a live test via `gh workflow run daily-email.yml -f mode=daily` to confirm inbox delivery.

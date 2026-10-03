@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Daily Scholar-Loop email: FSRS-driven note selection, Learn (morning) and Quiz (evening) modes.
+"""Scholar-Loop email: FSRS-driven note selection with an LLM-generated active-recall quiz.
+
+The scheduled run sends ONE combined email (Learn notes + Quiz + Answers) on weekday
+mornings. The standalone learn/quiz modes are kept for previews and debugging.
 
 Usage:
-  python agent/send_daily.py                             # learn (morning)
-  python agent/send_daily.py --mode quiz                 # quiz (evening)
-  python agent/send_daily.py --dry-run                   # preview learn without sending
-  python agent/send_daily.py --dry-run --mode quiz       # preview quiz without sending
+  python agent/send_daily.py                             # daily (combined Learn + Quiz)
+  python agent/send_daily.py --dry-run                   # preview the daily email without sending
+  python agent/send_daily.py --mode learn                # Learn notes only
+  python agent/send_daily.py --mode quiz                 # Quiz only
 """
 
 import math
@@ -19,17 +22,14 @@ from typing import Callable
 import frontmatter
 import markdown
 from fsrs import Card, Rating, Scheduler, State
-from openai import OpenAI
 from premailer import transform
 
 
 KNOWLEDGE_DIR = Path(__file__).resolve().parent.parent / "knowledge"
 DB_PATH = Path(__file__).resolve().parent.parent / "data" / "user.db"
-LLM_MODEL = os.environ.get("LLM_MODEL", "groq/compound-mini")
 
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
 RECIPIENT = os.environ.get("RECIPIENT")
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 TOPIC_WEIGHTS = {
     "dsa": 0.28,
@@ -40,8 +40,10 @@ TOPIC_WEIGHTS = {
 }
 
 NOTES_PER_LEARN = 4
-NOTES_PER_QUIZ = 4
+NOTES_PER_QUIZ = 4          # standalone --mode quiz
+NOTES_PER_DAILY_QUIZ = 2    # quiz section inside the combined daily email (3-6 questions)
 MAX_NOTES_TOTAL = 5
+GMAIL_CLIP_BYTES = 102 * 1024  # Gmail hides anything past ~102 KB of HTML
 
 # Daily email has no intra-day learning steps — each send is one full review.
 # Empty learning_steps so Rating.Good graduates straight to multi-day intervals.
@@ -74,6 +76,10 @@ HEADER_HTML = """<!DOCTYPE html>
   .quiz-q {{ font-weight:700; color:#111827; margin:16px 0 4px; }}
   .quiz-answer {{ background:#f0fdf4; border-left:4px solid #22c55e; border-radius:0 8px 8px 0; padding:12px 16px; margin:4px 0 24px; font-size:15px; line-height:1.6; }}
   .answer-label {{ font-weight:700; color:#15803d; }}
+  .part-heading {{ font-size:13px; font-weight:800; letter-spacing:0.08em; text-transform:uppercase; color:#7c3aed; margin:0 0 24px; padding-bottom:10px; border-bottom:2px solid #ede9fe; }}
+  .part-intro {{ color:#6b7280; font-size:15px; margin:-12px 0 24px; }}
+  .quiz-part {{ margin-top:48px; padding-top:8px; }}
+  .notice {{ background:#fffbeb; border-left:4px solid #f59e0b; border-radius:0 8px 8px 0; padding:12px 16px; color:#92400e; font-size:15px; }}
 </style>
 </head>
 <body>
@@ -91,11 +97,6 @@ HEADER_HTML = """<!DOCTYPE html>
 </div>
 </body>
 </html>"""
-
-TOPIC_DIRS = [
-    "dsa", "system-design", "ml-ai", "fullstack", "papers",
-]
-SKIP_FILES = {"README.md"}
 
 NOTE_SELECT_COLS = """id, path, title, topic, difficulty, tags, word_count,
                    stability, difficulty_fsrs, due, review_count, last_sent,
@@ -152,6 +153,9 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE notes ADD COLUMN state INTEGER DEFAULT 1")
     if "step" not in cols:
         conn.execute("ALTER TABLE notes ADD COLUMN step INTEGER")
+    # Quiz rotation timestamp. Not FSRS state: quizzes never change scheduling.
+    if "last_quizzed" not in cols:
+        conn.execute("ALTER TABLE notes ADD COLUMN last_quizzed TEXT")
     # Heal legacy rows that were "reviewed" without real FSRS graduation.
     conn.execute("""
         UPDATE notes
@@ -481,42 +485,50 @@ Note content:
         return "\n".join(questions_html), "\n".join(answers_html)
 
     except Exception as e:
-        print(f"  [warn] quiz gen failed across all providers: {e}", file=sys.stderr)
+        print(f"  [warn] quiz generation failed: {e}", file=sys.stderr)
         return None
 
 
-def _make_subject(mode: str, topics: list[str]) -> str:
-    # Deduplicate and format topics nicely
-    unique_topics = []
-    for t in topics:
-        if t not in unique_topics:
-            unique_topics.append(t)
-            
-    # Map raw topic names to readable names if desired, e.g., 'ml-ai' -> 'ML/AI'
-    display_topics = []
-    for t in unique_topics:
-        if t == "dsa": display_topics.append("DSA")
-        elif t == "ml-ai": display_topics.append("ML")
-        elif t == "system-design": display_topics.append("System Design")
-        elif t == "fullstack": display_topics.append("Fullstack")
-        else: display_topics.append(t.title())
-        
-    t_str = ""
-    if len(display_topics) > 2:
-        t_str = ", ".join(display_topics[:-1]) + ", and " + display_topics[-1]
-    elif len(display_topics) == 2:
-        t_str = f"{display_topics[0]} and {display_topics[1]}"
-    elif len(display_topics) == 1:
-        t_str = display_topics[0]
-        
+_TOPIC_DISPLAY = {
+    "dsa": "DSA",
+    "ml-ai": "ML",
+    "system-design": "System Design",
+    "fullstack": "Fullstack",
+}
+
+
+def _format_topics(topics: list[str] | None) -> str:
+    """Dedupe topics and join as 'A', 'A and B', or 'A, B, and C'."""
+    display: list[str] = []
+    for t in topics or []:
+        name = _TOPIC_DISPLAY.get(t, t.title())
+        if name not in display:
+            display.append(name)
+    if len(display) > 2:
+        return ", ".join(display[:-1]) + ", and " + display[-1]
+    if len(display) == 2:
+        return f"{display[0]} and {display[1]}"
+    return display[0] if display else ""
+
+
+def _make_subject(mode: str, topics: list[str] | None = None,
+                  has_quiz: bool = True) -> str:
+    t_str = _format_topics(topics)
+
+    if mode == "daily":
+        suffix = " — Learn & Quiz" if has_quiz else ""
+        if t_str:
+            return f"📚 Scholar-Loop: {t_str}{suffix}"
+        return f"📚 Scholar-Loop{suffix}"
+
     if mode == "quiz":
         if t_str:
             return f"🧩 Scholar-Loop Quiz: Testing your knowledge on {t_str}"
         return "🧩 Scholar-Loop Quiz"
-    else:
-        if t_str:
-            return f"📝 Scholar-Loop: Today's focus is on {t_str}"
-        return "📝 Scholar-Loop"
+
+    if t_str:
+        return f"📝 Scholar-Loop: Today's focus is on {t_str}"
+    return "📝 Scholar-Loop"
 
 
 def compute_topic_slots(weights: dict, total_slots: int,
@@ -563,14 +575,11 @@ def _log_pick(mode: str, items: list[dict]) -> None:
         )
 
 
-def run_learn(dry_run: bool, now: datetime | None = None,
-              send_fn: Callable | None = None) -> bool:
-    if now is None:
-        now = datetime.now(timezone.utc)
-    today_str = now.strftime("%A, %d %b %Y")
-    conn = get_db()
-    picked = []
-    seen_ids = set()
+def _select_learn_notes(conn: sqlite3.Connection, now: datetime,
+                        dry_run: bool = False) -> list[dict]:
+    """Pick today's Learn notes: proportional topic slots, ~1500-word cap, min 2 notes."""
+    picked: list[dict] = []
+    seen_ids: set = set()
 
     topic_slots = compute_topic_slots(
         TOPIC_WEIGHTS, NOTES_PER_LEARN,
@@ -592,7 +601,7 @@ def run_learn(dry_run: bool, now: datetime | None = None,
             if len(picked) >= 2 and total_words + words > MAX_WORDS:
                 # Skip this note if we already have 2 notes and it makes the email too long
                 continue
-                
+
             seen_ids.add(r["id"])
             path = r["path"]
             raw = read_note_content(path)
@@ -615,7 +624,36 @@ def run_learn(dry_run: bool, now: datetime | None = None,
                 "review_count": r["review_count"],
                 "sequence": r["sequence"] if "sequence" in r.keys() else None,
             })
+    return picked
 
+
+def _row_preview(r: sqlite3.Row) -> dict:
+    return {
+        "path": r["path"],
+        "title": r["title"],
+        "topic": r["topic"],
+        "due": r["due"],
+        "stability": r["stability"],
+        "review_count": r["review_count"],
+        "sequence": r["sequence"] if "sequence" in r.keys() else None,
+    }
+
+
+def _deliver(subject: str, html: str, send_fn: Callable | None) -> None:
+    if send_fn:
+        send_fn(subject, html, send_at=None)
+    else:
+        _send_email(subject, html, send_at=None)
+
+
+def run_learn(dry_run: bool, now: datetime | None = None,
+              send_fn: Callable | None = None) -> bool:
+    if now is None:
+        now = datetime.now(timezone.utc)
+    today_str = now.strftime("%A, %d %b %Y")
+    conn = get_db()
+
+    picked = _select_learn_notes(conn, now, dry_run)
     if not picked:
         print("[learn] no due notes")
         conn.close()
@@ -629,14 +667,9 @@ def run_learn(dry_run: bool, now: datetime | None = None,
 
     sections_html = "".join(p["html"] for p in picked)
     full_html = HEADER_HTML.format(date=today_str, body=sections_html)
-    
-    topics_picked = [p["topic"] for p in picked]
-    subject = _make_subject("learn", topics_picked)
+    subject = _make_subject("learn", [p["topic"] for p in picked])
 
-    if send_fn:
-        send_fn(subject, full_html, send_at=None)
-    else:
-        _send_email(subject, full_html, send_at=None)
+    _deliver(subject, full_html, send_fn)
 
     for p in picked:
         mark_sent(conn, p["id"], now)
@@ -645,54 +678,67 @@ def run_learn(dry_run: bool, now: datetime | None = None,
     return True
 
 
-def run_quiz(dry_run: bool, now: datetime | None = None,
-             send_fn: Callable | None = None) -> bool:
-    if now is None:
-        now = datetime.now(timezone.utc)
-    today_str = now.strftime("%A, %d %b %Y")
-    conn = get_db()
+def _select_quiz_rows(conn: sqlite3.Connection, limit: int,
+                      exclude_ids: set | None = None) -> list[sqlite3.Row]:
+    """Pick quiz notes from what you've already studied.
 
-    rows = conn.execute(
+    Order: least recently quizzed first (never-quizzed first), then weakest memory
+    (lowest FSRS stability), then oldest send. One note per topic before any topic
+    repeats. Notes in `exclude_ids` (e.g. today's Learn notes) are skipped.
+    Falls back to any note if nothing has been sent yet.
+    """
+    exclude_ids = exclude_ids or set()
+    candidates = conn.execute(
         f"""SELECT {NOTE_SELECT_COLS}
            FROM notes
            WHERE last_sent IS NOT NULL
-           ORDER BY ROW_NUMBER() OVER (PARTITION BY topic ORDER BY RANDOM()), RANDOM()
-           LIMIT ?""",
-        (NOTES_PER_QUIZ,)
+           ORDER BY last_quizzed ASC NULLS FIRST,
+                    stability ASC NULLS LAST,
+                    last_sent ASC"""
     ).fetchall()
-
-    if not rows:
-        rows = conn.execute(
-            f"""SELECT {NOTE_SELECT_COLS}
-               FROM notes
-               ORDER BY ROW_NUMBER() OVER (PARTITION BY topic ORDER BY RANDOM()), RANDOM()
-               LIMIT ?""",
-            (NOTES_PER_QUIZ,)
+    if not candidates:
+        candidates = conn.execute(
+            f"SELECT {NOTE_SELECT_COLS} FROM notes ORDER BY RANDOM()"
         ).fetchall()
 
-    if not rows:
-        print("[quiz] no notes available")
-        conn.close()
-        return False
+    candidates = [r for r in candidates if r["id"] not in exclude_ids]
 
-    preview = [{
-        "path": r["path"],
-        "title": r["title"],
-        "topic": r["topic"],
-        "due": r["due"],
-        "stability": r["stability"],
-        "review_count": r["review_count"],
-        "sequence": r["sequence"] if "sequence" in r.keys() else None,
-    } for r in rows]
-    _log_pick("quiz", preview)
+    picked: list[sqlite3.Row] = []
+    picked_ids: set = set()
+    seen_topics: set = set()
+    for r in candidates:
+        if len(picked) >= limit:
+            break
+        if r["topic"] not in seen_topics:
+            picked.append(r)
+            picked_ids.add(r["id"])
+            seen_topics.add(r["topic"])
+    for r in candidates:
+        if len(picked) >= limit:
+            break
+        if r["id"] not in picked_ids:
+            picked.append(r)
+            picked_ids.add(r["id"])
+    return picked
 
-    if dry_run:
-        conn.close()
-        return True
 
-    quiz_sections = []
-    answers_sections = []
-    delivered_topics = []
+def mark_quizzed(conn: sqlite3.Connection, note_ids: list[int], now: datetime) -> None:
+    """Record quiz rotation only. Does NOT touch FSRS scheduling state."""
+    if not note_ids:
+        return
+    conn.executemany(
+        "UPDATE notes SET last_quizzed=? WHERE id=?",
+        [(now.isoformat(), i) for i in note_ids],
+    )
+    conn.commit()
+
+
+def _build_quiz(rows: list[sqlite3.Row]) -> tuple[list[str], list[str], list[str], list[int]]:
+    """Generate quiz sections. Returns (question sections, answer sections, topics, note ids)."""
+    quiz_sections: list[str] = []
+    answers_sections: list[str] = []
+    delivered_topics: list[str] = []
+    delivered_ids: list[int] = []
 
     for r in rows:
         raw = read_note_content(r["path"])
@@ -702,52 +748,166 @@ def run_quiz(dry_run: bool, now: datetime | None = None,
         result = generate_quiz_qas(raw, title, r["topic"])
         if not result:
             continue
-        
+
         q_html, a_html = result
         delivered_topics.append(r["topic"])
+        delivered_ids.append(r["id"])
 
-        section = f"""<div class="note-section">
+        quiz_sections.append(f"""<div class="note-section">
   <div class="meta-row">
     <span class="tag-topic">{r["topic"]}</span>
     <span class="tag-diff">{r["difficulty"] or "medium"}</span>
   </div>
   <h2>&#x1F9E9; {title}</h2>
   {q_html}
-</div>"""
-        quiz_sections.append(section)
-        
-        # Add to answers footer
+</div>""")
+
         answers_sections.append(f"""<div style="margin-bottom:20px;">
     <h3 style="margin-top:0; color:#4f46e5; font-size:16px;">{title}</h3>
     {a_html}
 </div>""")
 
-    if not quiz_sections:
-        print("[quiz] quiz generation produced no sections (need GROQ_API_KEY?)")
-        conn.close()
-        return False
+    return quiz_sections, answers_sections, delivered_topics, delivered_ids
 
-    # Build the main body with questions, and then append the answers at the bottom
-    body_html = "\n".join(quiz_sections)
-    
-    # Answers Footer
-    answers_footer = f"""
+
+def _answers_footer(answers_sections: list[str]) -> str:
+    return f"""
     <div style="margin-top:40px; padding-top:40px; border-top:2px dashed #cbd5e1;">
       <h2 style="text-align:center; color:#64748b; font-size:20px; margin-bottom:30px;">Answers</h2>
       {"".join(answers_sections)}
     </div>
     """
-    
-    body_html += answers_footer
 
+
+def run_quiz(dry_run: bool, now: datetime | None = None,
+             send_fn: Callable | None = None) -> bool:
+    if now is None:
+        now = datetime.now(timezone.utc)
+    today_str = now.strftime("%A, %d %b %Y")
+    conn = get_db()
+
+    rows = _select_quiz_rows(conn, NOTES_PER_QUIZ)
+    if not rows:
+        print("[quiz] no notes available")
+        conn.close()
+        return False
+
+    _log_pick("quiz", [_row_preview(r) for r in rows])
+
+    if dry_run:
+        conn.close()
+        return True
+
+    quiz_sections, answers_sections, delivered_topics, delivered_ids = _build_quiz(rows)
+
+    if not quiz_sections:
+        print("[quiz] quiz generation produced no sections (is GEMINI_API_KEY set?)")
+        conn.close()
+        return False
+
+    body_html = "\n".join(quiz_sections) + _answers_footer(answers_sections)
     full_html = HEADER_HTML.format(date=today_str, body=body_html)
-    
     subject = _make_subject("quiz", delivered_topics)
 
-    if send_fn:
-        send_fn(subject, full_html, send_at=None)
+    _deliver(subject, full_html, send_fn)
+    mark_quizzed(conn, delivered_ids, now)
+
+    conn.close()
+    return True
+
+
+def run_daily(dry_run: bool, now: datetime | None = None,
+              send_fn: Callable | None = None,
+              preview_path: str | None = None) -> bool:
+    """One combined email: Learn notes, then a short quiz, then answers at the bottom.
+
+    If quiz generation fails, the Learn notes are still sent with a notice, and a
+    GitHub Actions warning is raised so the failure is visible.
+    `preview_path` builds the full email (including the LLM quiz) and writes it to a
+    file without sending or changing the database.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+    today_str = now.strftime("%A, %d %b %Y")
+    conn = get_db()
+
+    learn = _select_learn_notes(conn, now, dry_run)
+    if learn:
+        _log_pick("learn", learn)
     else:
-        _send_email(subject, full_html, send_at=None)
+        print("[daily] no due Learn notes today")
+
+    quiz_rows = _select_quiz_rows(
+        conn, NOTES_PER_DAILY_QUIZ, exclude_ids={p["id"] for p in learn}
+    )
+    if quiz_rows:
+        _log_pick("quiz", [_row_preview(r) for r in quiz_rows])
+
+    if dry_run and not preview_path:
+        conn.close()
+        return bool(learn or quiz_rows)
+
+    quiz_sections, answers_sections, quiz_topics, quiz_ids = (
+        _build_quiz(quiz_rows) if quiz_rows else ([], [], [], [])
+    )
+    quiz_failed = bool(quiz_rows) and not quiz_sections
+    if quiz_failed:
+        print("::warning title=Scholar-Loop quiz unavailable::Gemini quiz generation "
+              "failed, so only the Learn notes were sent. Check GEMINI_API_KEY and the log.")
+
+    if not learn and not quiz_sections:
+        print("[daily] nothing to send")
+        conn.close()
+        return False
+
+    parts: list[str] = []
+    part_no = 1
+    if learn:
+        parts.append(
+            f'<div class="part-heading">&#x1F4DA; Part {part_no} &middot; Today\'s notes</div>'
+            + "".join(p["html"] for p in learn)
+        )
+        part_no += 1
+    if quiz_sections:
+        parts.append(
+            '<div class="quiz-part">'
+            f'<div class="part-heading">&#x1F9E9; Part {part_no} &middot; Active recall</div>'
+            '<p class="part-intro">From notes you studied earlier. Answer in your head first; '
+            'the answers are at the bottom.</p>'
+            + "\n".join(quiz_sections)
+            + "</div>"
+        )
+    elif quiz_failed:
+        parts.append(
+            '<div class="quiz-part">'
+            '<div class="part-heading">&#x1F9E9; Active recall</div>'
+            '<div class="notice">Quiz unavailable today: question generation failed. '
+            'Your notes above are unaffected.</div></div>'
+        )
+
+    body_html = "\n".join(parts)
+    if answers_sections:
+        body_html += _answers_footer(answers_sections)
+
+    full_html = HEADER_HTML.format(date=today_str, body=body_html)
+    subject_topics = [p["topic"] for p in learn] if learn else quiz_topics
+    subject = _make_subject("daily", subject_topics, has_quiz=bool(quiz_sections))
+
+    if preview_path:
+        html = transform(full_html)
+        Path(preview_path).write_text(html, encoding="utf-8")
+        size_kb = len(html.encode("utf-8")) / 1024
+        print(f"[daily] subject: {subject}")
+        print(f"[daily] preview written to {preview_path} "
+              f"({size_kb:.1f} KB; Gmail clips at {GMAIL_CLIP_BYTES / 1024:.0f} KB)")
+        conn.close()
+        return True
+
+    _deliver(subject, full_html, send_fn)
+
+    for p in learn:
+        mark_sent(conn, p["id"], now)
+    mark_quizzed(conn, quiz_ids, now)
 
     conn.close()
     return True
@@ -760,6 +920,11 @@ def run_quiz(dry_run: bool, now: datetime | None = None,
 def _send_email(subject: str, html: str, send_at: str | None):
     import httpx
     html = transform(html)
+
+    size = len(html.encode("utf-8"))
+    if size > GMAIL_CLIP_BYTES:
+        print(f"::warning title=Scholar-Loop email may be clipped::HTML is {size / 1024:.0f} KB; "
+              f"Gmail clips past {GMAIL_CLIP_BYTES / 1024:.0f} KB.")
 
     if not RESEND_API_KEY or not RECIPIENT:
         print("error: RESEND_API_KEY and RECIPIENT must be set", file=sys.stderr)
@@ -795,22 +960,23 @@ def _send_email(subject: str, html: str, send_at: str | None):
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Send daily Scholar-Loop email")
-    parser.add_argument("--mode", choices=["learn", "quiz", "both"], default="both",
-                        help="learn (morning), quiz (evening), or both (default)")
+    parser = argparse.ArgumentParser(description="Send the Scholar-Loop email")
+    parser.add_argument("--mode", choices=["daily", "learn", "quiz"], default="daily",
+                        help="daily = combined Learn + Quiz (default); learn or quiz alone")
     parser.add_argument("--dry-run", action="store_true",
-                        help="Preview without sending")
+                        help="Show which notes would be picked, without sending")
+    parser.add_argument("--preview", metavar="FILE",
+                        help="daily mode: build the full email (calls Gemini) and write "
+                             "the HTML to FILE without sending or changing the database")
     args = parser.parse_args()
 
-    modes = ["learn", "quiz"] if args.mode == "both" else [args.mode]
-    ok = True
-
-    for mode in modes:
-        print(f"mode={mode} dry_run={args.dry_run}")
-        if mode == "learn":
-            ok = run_learn(args.dry_run) and ok
-        else:
-            ok = run_quiz(args.dry_run) and ok
+    print(f"mode={args.mode} dry_run={args.dry_run} preview={args.preview}")
+    if args.mode == "daily":
+        ok = run_daily(args.dry_run or bool(args.preview), preview_path=args.preview)
+    elif args.mode == "learn":
+        ok = run_learn(args.dry_run)
+    else:
+        ok = run_quiz(args.dry_run)
 
     sys.exit(0 if ok else 1)
 

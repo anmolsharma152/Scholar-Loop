@@ -21,8 +21,15 @@ Comprehensive tracking of completed milestones, in-progress priorities, and futu
 - [x] **Subject Line Polish:**
   - [x] Fix 2-topic grammar (`"DSA and ML"` without extraneous Oxford comma).
   - [x] Synchronize subject topics strictly with delivered digest content.
-- [x] **Repository Documentation:** Complete rewrite of `README.md`, `docs/STATUS.md`, and `docs/setup.md`.
+- [x] **Repository Documentation:** Complete rewrite of `README.md`, `docs/setup.md`, `PROJECT_STATE.md`, and `SESSION_HANDOFF.md`.
 - [x] **GitHub Metadata:** Live update of repository description and 13 targeted topics via `gh` CLI.
+- [x] **Phase 1.2 Migration & Optimization:**
+  - [x] Migrate primary LLM to Google Gemini Flash (`gemini-flash-latest` / `gemini-3.8-flash`) with low reasoning effort.
+  - [x] Combine separate Learn and Quiz emails into a single cohesive morning digest sent Monday–Friday only (`47 1 * * 1-5`).
+  - [x] Implement non-blocking soft-fail so quiz failures never block morning Learn reading notes.
+  - [x] Implement quiz rotation tracking (`last_quizzed`) prioritizing least recently quizzed + lowest stability notes.
+  - [x] Add CI test workflow (`.github/workflows/tests.yml`) running 95 test suites.
+  - [x] Purge dead Groq/OpenRouter dependencies and code references across scripts and tests.
 
 ---
 

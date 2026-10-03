@@ -21,7 +21,7 @@ Scholar-Loop is an automated, spaced-repetition learning companion designed to d
 │                   ▼                                               ▼         │
 │         [ LEARN ENGINE (Morning) ]                      [ QUIZ ENGINE (Evening) ]   │
 │         • Proportional topic slots                      • Partition-diverse pool   │
-│         • Due notes first (NULLS LAST)                  • Groq LLM (Q1–Q3 / A1–A3) │
+│         • Due notes first (NULLS LAST)                  • Gemini Flash (Q1–Q3 / A1–A3) │
 │         • Sequential syllabus gating                    • Newsletter solution box  │
 │         • Dynamic word cap (~1500w)                     • Topic-synchronized subj  │
 │         • FSRS Passive Good update                      • Zero state mutation      │
@@ -88,22 +88,22 @@ Scholar-Loop integrates the **Free Spaced Repetition Scheduler (FSRS-6)**.
 
 ### C. LLM Active Recall & Defensive Parsing Engine
 
-Evening quizzes call Groq's high-speed inference engine (`groq/compound-mini`).
+Evening quizzes and daily digests call Google Gemini Flash via its OpenAI-compatible endpoint (`gemini-flash-latest` / `gemini-3.8-flash`).
 
 ```
-[ Raw Note Markdown ] ──► [ Groq API ] ──► [ Defensive Parser ] ──► [ HTML Newsletter ]
-                                            ├── Regex <think> strip
-                                            ├── Schema regex match
-                                            ├── Placeholder blacklist
-                                            └── Deduplication set
+[ Raw Note Markdown ] ──► [ Gemini API ] ──► [ Defensive Parser ] ──► [ HTML Newsletter ]
+                                              ├── Regex <think> strip
+                                              ├── Schema regex match
+                                              ├── Placeholder blacklist
+                                              └── Deduplication set
 ```
 
 #### 4-Layer Defensive Parser Architecture:
-1. **`<think>` Tag Stripping:** Reasoning and thinking tokens (e.g. `<think>...</think>` from reasoning models) are stripped via regex before parsing.
+1. **`<think>` Tag Stripping:** Defensive stripping via regex to catch any inline reasoning tokens.
 2. **Strict Regex Matching:** Matches lines strictly conforming to `Q[1-3].` and `A[1-3].` prefixes.
 3. **Placeholder Blacklist:** Explicitly drops hallucinated template placeholders (e.g. `[question text]`, `[concise answer]`).
 4. **Deduplication:** Maintains `seen_q` and `seen_a` sets to ensure exactly 3 distinct questions and 3 distinct answers per note.
-5. **Rate-Limit Retry Backoff:** Intercepts HTTP 429 errors, extracts the exact cooldown duration from Groq's response (e.g. `try again in 8.42s`), sleeps, and retries up to 3 times.
+5. **Rate-Limit Retry Backoff:** Intercepts HTTP 429/503 errors, extracts cooldown duration from headers/messages, sleeps, and retries up to 3 times.
 
 #### Newsletter Solution Layout:
 - **Questions:** Displayed cleanly beneath note headers as `Q1.`, `Q2.`, `Q3.`.
